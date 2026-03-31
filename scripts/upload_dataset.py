@@ -9,7 +9,7 @@ Set HF_TOKEN environment variable before running.
 
 import os
 from datasets import load_dataset, Dataset, DatasetDict
-from huggingface_hub import login
+from huggingface_hub import login, HfApi
 
 HF_USERNAME = "bmeyer2025"
 RAW_REPO = f"{HF_USERNAME}/glm5-reasoning-traces"
@@ -57,6 +57,18 @@ sft_ds.push_to_hub(
     commit_message="Add SFT-formatted reasoning traces (train/val/test, 80/10/10)",
 )
 print(f"  ✅ https://huggingface.co/datasets/{SFT_REPO}")
+
+# ── 3. Upload dataset cards ────────────────────────────────────────────────────
+print("\nUploading dataset card...")
+api = HfApi()
+api.upload_file(
+    path_or_fileobj="cards/dataset_card.md",
+    path_in_repo="README.md",
+    repo_id=RAW_REPO,
+    repo_type="dataset",
+    commit_message="Add dataset card",
+)
+print(f"  ✅ Dataset card uploaded to {RAW_REPO}")
 
 print("\nDone!")
 print(f"  Raw traces:    https://huggingface.co/datasets/{RAW_REPO}")

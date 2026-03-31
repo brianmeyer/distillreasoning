@@ -17,10 +17,6 @@ Distill reasoning capabilities from GLM-5 (744B MoE) into a tiny Qwen3.5-4B mode
 
 ## How It Works
 
-<p align="center">
-  <img src="images/distillation_brain.png" alt="Large glowing neural network brain streaming reasoning chains into a compact crystal — visualizing knowledge distillation" width="600">
-</p>
-
 Knowledge distillation works by having a large "teacher" model generate training data that a small "student" model learns from. The student doesn't learn from raw problems — it learns from the teacher's *reasoning process*.
 
 | Step | What happens |

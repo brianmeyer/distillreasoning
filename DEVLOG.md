@@ -432,6 +432,20 @@ This is the most reusable form. Anyone who wants to distill into a different mod
 
 Updated `upload_dataset.py` to push both repos in a single run.
 
+### 1:30 PM — Images and Repo Presentation
+
+Generated three images in Gemini matching the tinyllm visual style (dark navy backgrounds, glowing blue tech elements, warm/cold contrast):
+
+- **`classroom_hero.png`** → GitHub README header. GLM-5 teacher robot at a chalkboard showing `<think>` reasoning chains, tiny Qwen3.5-4B student robot taking notes. Labels: "GLM-5 (744B)" and "QWEN3.5-4B". Apple on the desk.
+- **`distillation_brain.png`** → HuggingFace dataset card. Large glowing neural network brain streaming equations and reasoning chains into a compact glowing crystal. Captures the "big model → small model" concept visually.
+- **`distillation_apparatus.png`** → HuggingFace model card. Chemistry distillation apparatus with math equations flowing through glass tubes, condensing into a flask labeled "PURE DISTILLED REASONING".
+
+One image per destination — GitHub gets the classroom, dataset card gets the brain, model card gets the apparatus.
+
+GitHub repo description updated to: *"Steal reasoning from a 744B model. Teach it to a 4B model. Run it on your laptop. Zero cost."*
+
+Also created `cards/dataset_card.md` and `cards/model_card.md` — full HuggingFace repo cards with metadata frontmatter, usage examples, eval table placeholder. Both get uploaded automatically by `upload_dataset.py`.
+
 ---
 
 ## Errors and Lessons So Far
