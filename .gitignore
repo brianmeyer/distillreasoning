@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+build/
+.ipynb_checkpoints/
+outputs/
+model-merged/
+*.gguf
+venv/
+.venv/
