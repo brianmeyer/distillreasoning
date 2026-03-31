@@ -315,7 +315,104 @@ This machine doesn't have git user.name/user.email set. Minor but annoying — n
 
 ---
 
-*Trace generation running... will update when it finishes and we move to filtering + training.*
+### 11:50 AM — Scaling Up: Going for All 2,083 Problems
+
+Original target was ~1,200 problems. Bumped to 1,500, then decided to just use everything. We have 2,083 problems downloaded — no reason to throw any away. More diverse training data is almost always better for distillation. The filter step will cull the bad ones anyway.
+
+Updated `MAX_PROBLEMS = 9999` in the generate script (effectively "use all"). Killed and restarted the generation process. Because of the incremental save + resume logic, the 39 traces already done were preserved.
+
+**Updated ETA:** All 2,083 problems × ~14 seconds each = **~8 hours** of generation. Kicked off at ~11:53 AM, expect completion around **8 PM**.
+
+Updated the format script to do a proper **80/10/10 train/validation/test split** (was 90/10 before). The three-way split matters:
+- **Train (80%)** — what the model learns from
+- **Validation (10%)** — monitor loss during training, catch overfitting early
+- **Test (10%)** — completely held out, never seen during training, used for final eval
+
+### 12:15 PM — Switching from Colab to Tinker
+
+Originally planned to use Google Colab free tier (T4 GPU) for training with Unsloth. After looking at the options again, switching to **[Tinker](https://thinkingmachines.ai/tinker/)** — the fine-tuning API from Mira Murati's Thinking Machines Lab.
+
+**Why Tinker over Colab:**
+
+| | Colab Free | Tinker |
+|--|-----------|--------|
+| GPU | T4 (16GB) | Managed cloud |
+| Timeout | ~4-6 hrs | None |
+| Checkpoints | Dies on disconnect (learned from tinyllm) | Persistent |
+| GRPO/RL | Manual setup | Native support |
+| Cost | Free | ~$6-7 for our run ($150 credit available) |
+
+The tinyllm project got burned by Colab disconnecting after 3+ hours of training — losing all checkpoints. Tinker avoids that entirely. With $150 in credits and Qwen3.5-4B costing $0.67/million training tokens, we can run the full SFT (~10M tokens) plus multiple GRPO experiments for well under $50.
+
+**Key question: is LoRA-only a problem?** Tinker only supports LoRA, not full fine-tuning. But this is exactly what the original Unsloth/Colab plan used too (QLoRA). At 4B parameters, LoRA rank 32 across all attention and MLP layers gives plenty of capacity for distillation. The LoRA weights get merged back into the base model at the end — the final exported model is a full standalone model, indistinguishable from a fully fine-tuned one.
+
+**The data format was already compatible.** Tinker expects `{"messages": [...]}` JSONL — exactly what our pipeline already produces. Zero reformatting needed.
+
+### 12:30 PM — Installing and Authenticating Tinker
+
+```bash
+pip install tinker tinker-cookbook
+tinker version
+# tinker 0.16.1
+
+tinker run list
+# No training runs found (clean account)
+```
+
+API key authenticated. Account is fresh, ready to go.
+
+Tested that Qwen3.5-4B is supported and the renderer is available:
+```python
+from tinker_cookbook import model_info
+renderer = model_info.get_recommended_renderer_name("Qwen/Qwen3.5-4B")
+# qwen3_5 ✅
+```
+
+### 12:45 PM — Writing the Tinker Training Script
+
+Read the [Tinker docs](https://tinker-docs.thinkingmachines.ai) carefully before writing the script. Key things I learned:
+
+**The Tinker API is lower-level than Unsloth/HuggingFace Trainer.** Instead of a `trainer.train()` call, you manually loop and call:
+1. `training_client.forward_backward(batch, "cross_entropy")` — compute gradients
+2. `training_client.optim_step(AdamParams(lr))` — update weights
+
+This is more verbose but also more transparent. You can see exactly what's happening at each step.
+
+**Weight masking via the renderer.** The key call is:
+```python
+model_input, weights = renderer.build_supervised_example(messages)
+```
+This applies the model's chat template AND automatically sets `weights=0` for system/user tokens and `weights=1` for assistant tokens. So the model only learns from the reasoning traces, not from the questions themselves. This is the Tinker equivalent of Unsloth's `train_on_responses_only`.
+
+**Learning rate formula.** Tinker has a specific formula for LoRA learning rates:
+`LR(m) = lr_base * M_LoRA * (2000/H_m)^P_m`
+
+Rather than guess, used their helper:
+```python
+from tinker_cookbook.hyperparam_utils import get_lr
+lr = get_lr("Qwen/Qwen3.5-4B")
+```
+
+**Recommended settings per docs:**
+- Batch size: 128
+- Min training steps: 100 (we'll do ~1,000+)
+- LoRA rank: 32 (default)
+
+### Status — 1:00 PM
+
+| What | Status |
+|------|--------|
+| Trace generation | 🔄 ~80/2083 running (ETA ~8 PM) |
+| Tinker SDK | ✅ Installed, authenticated |
+| Tinker training script | ✅ Written (`scripts/train_tinker.py`) |
+| Colab notebook | ✅ Still exists as backup |
+| Filter/format scripts | ✅ Ready to run after traces finish |
+
+**Waiting on:** Trace generation. Everything else is ready. When generation finishes tonight:
+1. `python scripts/filter_traces.py`
+2. `python scripts/format_for_sft.py`
+3. `HF_TOKEN=xxx python scripts/upload_dataset.py`
+4. `TINKER_API_KEY=xxx python scripts/train_tinker.py`
 
 ---
 

@@ -10,3 +10,5 @@ model-merged/
 *.gguf
 venv/
 .venv/
+data/
+.claude/

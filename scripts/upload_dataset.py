@@ -13,14 +13,16 @@ if token:
 else:
     login()
 
-# Load train/test splits
+# Load train/validation/test splits
 dataset = load_dataset("json", data_files={
     "train": "data/train.jsonl",
+    "validation": "data/validation.jsonl",
     "test": "data/test.jsonl",
 })
 
-print(f"Train: {len(dataset['train'])} examples")
-print(f"Test: {len(dataset['test'])} examples")
+print(f"Train:      {len(dataset['train'])} examples")
+print(f"Validation: {len(dataset['validation'])} examples")
+print(f"Test:       {len(dataset['test'])} examples")
 
 # Push to hub
 dataset.push_to_hub(REPO_ID)

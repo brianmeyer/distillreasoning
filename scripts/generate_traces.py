@@ -17,7 +17,7 @@ SYSTEM_PROMPT = (
 )
 
 MODEL = "glm-5:cloud"
-MAX_PROBLEMS = 1200  # Target count from the guide
+MAX_PROBLEMS = 9999  # Use all available problems
 DELAY_SECONDS = 2    # Rate limiting
 MAX_RETRIES = 3
 RETRY_BACKOFF = 5    # seconds, multiplied by attempt number

@@ -1,4 +1,4 @@
-"""Format filtered traces into Unsloth SFT chat format with train/test split."""
+"""Format filtered traces into Unsloth SFT chat format with train/validation/test split."""
 
 import json
 import random
@@ -8,11 +8,15 @@ random.seed(42)
 
 INPUT_FILE = Path("data/traces_filtered.jsonl")
 TRAIN_FILE = Path("data/train.jsonl")
+VAL_FILE = Path("data/validation.jsonl")
 TEST_FILE = Path("data/test.jsonl")
 
 SYSTEM_MESSAGE = "You are a helpful reasoning assistant. Think through problems step by step before answering."
 
-TRAIN_RATIO = 0.9
+# 80/10/10 split
+TRAIN_RATIO = 0.80
+VAL_RATIO = 0.10
+# Test gets the remaining 10%
 
 
 def format_entry(entry):
@@ -44,19 +48,23 @@ def main():
 
     # Shuffle and split
     random.shuffle(formatted)
-    split_idx = int(len(formatted) * TRAIN_RATIO)
-    train = formatted[:split_idx]
-    test = formatted[split_idx:]
+    train_end = int(len(formatted) * TRAIN_RATIO)
+    val_end = train_end + int(len(formatted) * VAL_RATIO)
+
+    train = formatted[:train_end]
+    val = formatted[train_end:val_end]
+    test = formatted[val_end:]
 
     # Write
-    for data, path in [(train, TRAIN_FILE), (test, TEST_FILE)]:
+    for data, path in [(train, TRAIN_FILE), (val, VAL_FILE), (test, TEST_FILE)]:
         with open(path, "w") as f:
             for entry in data:
                 f.write(json.dumps(entry) + "\n")
 
     print(f"Formatted {len(formatted)} entries")
-    print(f"  Train: {len(train)} -> {TRAIN_FILE}")
-    print(f"  Test:  {len(test)} -> {TEST_FILE}")
+    print(f"  Train:      {len(train)} -> {TRAIN_FILE}")
+    print(f"  Validation: {len(val)} -> {VAL_FILE}")
+    print(f"  Test:       {len(test)} -> {TEST_FILE}")
 
     # Print a sample
     print("\n--- Sample formatted entry ---")
