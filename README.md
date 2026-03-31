@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <em>2,083 problems. GLM-5 + Kimi K2.5 as teachers. Qwen3.5-4B as student. ~$14 in compute. Two distilled models, one controlled experiment.</em>
+  <em>2,083 problems. Two teachers (GLM-5, Kimi K2.5). Two students (4B, 2B). SFT then GRPO. 14 eval points. One controlled experiment.</em>
 </p>
 
 <p align="center">
@@ -32,26 +32,41 @@ Every step — including the mistakes — is in the [Dev Log](DEVLOG.md).
 
 ## Results
 
-| Model | Training | GSM8K Accuracy | Format compliance | Avg thinking tokens |
-|-------|----------|---------------|-------------------|---------------------|
-| Base Qwen3.5-4B | None | TBD | 0% | 0 |
-| GLM-5 distilled | SFT on GLM-5 traces | TBD | TBD | TBD |
-| Kimi K2.5 distilled | SFT on Kimi traces | TBD | TBD | TBD |
-| Combined | SFT on both mixed | TBD | TBD | TBD |
+### Qwen3.5-4B
 
-*Results updated after eval runs*
+| Model | Stage | GSM8K Accuracy | Format | Avg thinking tokens |
+|-------|-------|---------------|--------|---------------------|
+| Base 4B | — | TBD | 0% | 0 |
+| 4B + GLM-5 | SFT | TBD | TBD | TBD |
+| 4B + Kimi | SFT | TBD | TBD | TBD |
+| 4B + Combined | SFT | TBD | TBD | TBD |
+| 4B + best | SFT → GRPO | TBD | TBD | TBD |
+
+### Qwen3.5-2B
+
+| Model | Stage | GSM8K Accuracy | Format | Avg thinking tokens |
+|-------|-------|---------------|--------|---------------------|
+| Base 2B | — | TBD | 0% | 0 |
+| 2B + GLM-5 | SFT | TBD | TBD | TBD |
+| 2B + Kimi | SFT | TBD | TBD | TBD |
+| 2B + Combined | SFT | TBD | TBD | TBD |
+| 2B + best | SFT → GRPO | TBD | TBD | TBD |
+
+*14 eval points total. GRPO applied to top SFT performers. Results updated after runs.*
 
 ## How it works
 
-| Step | What | Time |
-|------|------|------|
-| 1. Collect problems | GSM8K, MATH, ARC, HumanEval — 2,083 total | 5 min |
-| 2. Generate traces | GLM-5 solves each with full `<think>` chain via Ollama cloud | ~8 hrs |
-| 3. Filter | Keep correct answers with deep reasoning (>50 thinking tokens) | 15 min |
-| 4. Format | Convert to chat format with `<think>`/`<answer>` tags, 80/10/10 split | 1 min |
-| 5. Train | LoRA SFT via Tinker — two separate models, one per teacher | ~2 hrs each |
-| 6. Evaluate | 4-way: base vs GLM-5 distilled vs Kimi distilled vs combined | 30 min |
-| 7. Export | GGUF for Ollama, push to HuggingFace | 15 min |
+| Step | What |
+|------|------|
+| 1. Collect | GSM8K, MATH, ARC, HumanEval — 2,083 problems |
+| 2. Generate | Both teachers solve all problems with full `<think>` traces via Ollama cloud |
+| 3. Filter | Keep correct answers with deep reasoning (>50 thinking tokens) |
+| 4. Format | Chat format with `<think>`/`<answer>` tags, 80/10/10 split |
+| 5. SFT | LoRA fine-tune 6 models: 2 students (4B, 2B) × 3 teacher configs (GLM-5, Kimi, combined) |
+| 6. Benchmark | Eval all 6 SFT models on held-out GSM8K — pick top 2-3 |
+| 7. GRPO | Reinforcement learning on top SFT models — reward correct answers |
+| 8. Final eval | 14-point comparison: base → SFT → GRPO across all configs |
+| 9. Export | GGUF for local inference via Ollama/llama.cpp |
 
 ## Why GLM-5 as teacher
 

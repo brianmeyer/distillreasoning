@@ -23,8 +23,8 @@ SYSTEM_PROMPT = (
 )
 
 MODEL = "kimi-k2.5:cloud"
-NUM_WORKERS = 2      # Fewer workers — GLM-5 is also running
-DELAY_SECONDS = 1.0  # Slightly more conservative
+NUM_WORKERS = 4      # Match GLM-5 workers
+DELAY_SECONDS = 0.5  # Match GLM-5 delay
 MAX_RETRIES = 3
 RETRY_BACKOFF = 5
 

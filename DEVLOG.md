@@ -553,6 +553,56 @@ GLM-5 generation rate dropped from ~6/min to ~3/min with Kimi running alongside.
 
 *Both generators running. GLM-5: 227/2083, Kimi: 6/2083. ETA: both ~6-8 hours.*
 
+### 1:45 PM — Expanding the Experiment: Two Students, Three Training Stages
+
+The project scope grew from "distill one model" to a controlled experiment. Here's the full design:
+
+**Two student models:**
+- Qwen3.5-4B — sweet spot for capacity
+- Qwen3.5-2B — tests how small you can go before distillation stops working
+
+**Three teacher configs:**
+- GLM-5 only (verbose reasoning)
+- Kimi K2.5 only (concise reasoning)
+- Combined (both trace sets merged)
+
+**Three training stages, benchmarked at each:**
+
+| Stage | What it does | Method |
+|-------|-------------|--------|
+| **Base** | No training — the control | — |
+| **SFT** | Learn to produce reasoning traces | LoRA fine-tuning on teacher traces |
+| **SFT → GRPO** | Reinforce correct answers | RL with reward functions on top of SFT |
+
+LoRA is used in both SFT and GRPO — it's the adapter method, not a separate training type. SFT teaches the student to *reason like the teacher* (style + structure). GRPO teaches it to *reason correctly* (reward right answers, penalize degenerate output).
+
+**The full eval matrix:**
+
+| Student | Teacher | Base | After SFT | After GRPO |
+|---------|---------|------|-----------|------------|
+| 4B | GLM-5 | eval | eval | eval (if top SFT) |
+| 4B | Kimi | eval | eval | eval (if top SFT) |
+| 4B | Combined | eval | eval | eval (if top SFT) |
+| 2B | GLM-5 | eval | eval | eval (if top SFT) |
+| 2B | Kimi | eval | eval | eval (if top SFT) |
+| 2B | Combined | eval | eval | eval (if top SFT) |
+
+14 eval points total. GRPO only on the top 2-3 SFT performers (not all 6 — diminishing returns on the weaker ones).
+
+**GRPO reward functions:**
+- `correctness_reward(1.0)` — did the model get the right numeric answer?
+- `format_reward(0.2)` — did it use proper `<think>`/`<answer>` tags?
+- `repetition_penalty(-0.3)` — is the model stuck in a loop?
+
+**Questions this answers:**
+1. Does the teacher model matter? (GLM-5 vs Kimi vs combined)
+2. Does student size matter? (4B vs 2B with the same teacher)
+3. Does verbose or concise reasoning transfer better?
+4. Does GRPO meaningfully improve on SFT?
+5. At what model size does distillation break down?
+
+Created a Linear project to track all of this: [Distill Reasoning](https://linear.app/recallforge/project/distill-reasoning-06471c1b227f) with 9 issues covering every phase from trace generation through final publish.
+
 ---
 
 ## Phase 2: Filtering
