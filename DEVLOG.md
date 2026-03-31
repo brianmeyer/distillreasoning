@@ -502,6 +502,16 @@ New rate: **~5 traces/minute** (up from ~2/min). ETA dropped from **21 hours →
 
 One gotcha: nohup buffers Python stdout even with `-u` when output comes from thread pools. The traces were being saved correctly to the JSONL file, but the console log wasn't updating. Fixed by using `python -u` (unbuffered) — but the thread-to-main-thread print flow still buffers. Not a real problem since we verify progress by counting lines in the output file, not by reading the log. This is the same "Python output buffering" lesson from tinyllm.
 
+### 1:00 PM — Licensing Check: Can We Use GLM-5 Outputs for Training?
+
+Important question to nail down before publishing anything. Short answer: **yes, unambiguously.**
+
+GLM-5 is MIT licensed — the most permissive open-source license. Released by Zhipu AI on Feb 13, 2026. MIT permits unrestricted commercial use, modification, and redistribution with no carve-outs for model outputs or distillation.
+
+This matters because **not all models allow this**. OpenAI and Anthropic's terms of service explicitly prohibit using outputs to train competing models. Meta's Llama community license has restrictions on competitive use. If you're doing distillation, the teacher model's license is the first thing to check.
+
+GLM-5, DeepSeek R1, and a few others are genuinely MIT — outputs included. This is one of the key reasons we chose GLM-5 as the teacher.
+
 *Trace generation running at ~5/min with 4 workers (ETA ~7 PM). Phases 2-7 below will be filled in automatically as each pipeline step runs.*
 
 ---
