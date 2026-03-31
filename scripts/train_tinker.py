@@ -26,8 +26,13 @@ BATCH_SIZE = 128
 NUM_EPOCHS = 3
 EVAL_EVERY = 50  # Evaluate every N steps
 SAVE_EVERY = 200  # Checkpoint every N steps
+# Local files (used if HuggingFace dataset not yet uploaded)
 TRAIN_FILE = Path("data/train.jsonl")
 VAL_FILE = Path("data/validation.jsonl")
+# Once uploaded, can also load from HF:
+# from datasets import load_dataset
+# ds = load_dataset("bmeyer2025/glm5-reasoning-traces-sft")
+# train_convos = [ex["messages"] for ex in ds["train"]]
 LOG_FILE = Path("data/tinker_metrics.jsonl")
 
 random.seed(42)

@@ -4,9 +4,10 @@ Distill reasoning capabilities from GLM-5 (744B MoE, 40B active params) into Qwe
 
 ## Deliverables
 
-- **Dataset:** [bmeyer2025/glm5-reasoning-traces](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces) - ~800-1,000 reasoning traces across math, logic, and code
-- **Model:** [bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled](https://huggingface.co/bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled) - Fine-tuned model with GGUF exports
-- **Cost:** $0 (Ollama cloud for generation, Colab free tier for training)
+- **Raw traces:** [bmeyer2025/glm5-reasoning-traces](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces) — problem + GLM-5 thinking + response, useful for custom pipelines
+- **SFT dataset:** [bmeyer2025/glm5-reasoning-traces-sft](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces-sft) — formatted train/val/test splits, plug-and-play with any trainer
+- **Model:** [bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled](https://huggingface.co/bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled) — fine-tuned model with GGUF exports
+- **Cost:** ~$7 (Ollama cloud free for generation, Tinker for training)
 
 ## Pipeline
 

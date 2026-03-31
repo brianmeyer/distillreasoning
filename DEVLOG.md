@@ -414,6 +414,24 @@ lr = get_lr("Qwen/Qwen3.5-4B")
 3. `HF_TOKEN=xxx python scripts/upload_dataset.py`
 4. `TINKER_API_KEY=xxx python scripts/train_tinker.py`
 
+### 1:15 PM — Publishing Two Datasets to HuggingFace
+
+Decided to publish the data in two forms rather than one:
+
+**`bmeyer2025/glm5-reasoning-traces`** — The raw traces. Each row has:
+- `id` — problem identifier
+- `source` — gsm8k / math / arc / humaneval
+- `problem` — the original question
+- `expected_answer` — ground truth answer
+- `thinking` — GLM-5's full `<think>` block (the gold)
+- `response` — GLM-5's final answer
+
+This is the most reusable form. Anyone who wants to distill into a different model, use a different chat template, or build a different pipeline can start from the raw traces.
+
+**`bmeyer2025/glm5-reasoning-traces-sft`** — The formatted version. Same data but already converted to `{"messages": [...]}` format with `<think>`/`<answer>` tags in the assistant turn, split 80/10/10 into train/validation/test. Plug straight into any HuggingFace-compatible trainer.
+
+Updated `upload_dataset.py` to push both repos in a single run.
+
 ---
 
 ## Errors and Lessons So Far
