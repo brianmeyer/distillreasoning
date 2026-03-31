@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>I borrowed reasoning from two 744B models and taught it to a 4B model that runs on a laptop.</strong>
+  <strong>I borrowed reasoning from a 744B and a 1T model and taught it to a 4B model that runs on a laptop.</strong>
 </p>
 
 <p align="center">
