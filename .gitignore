@@ -12,3 +12,5 @@ venv/
 .venv/
 data/
 .claude/
+!images/
+.DS_Store
