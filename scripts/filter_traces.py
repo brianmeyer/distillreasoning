@@ -1,36 +1,30 @@
-"""Filter reasoning traces for quality. Drop incorrect answers and short/repetitive traces."""
+"""Filter reasoning traces for quality. Drop incorrect answers and short/repetitive traces.
+
+Writes detailed stats and examples to data/filter_report.json for the devlog.
+"""
 
 import json
 import re
 from pathlib import Path
-from collections import Counter
+from collections import Counter, defaultdict
 
 INPUT_FILE = Path("data/traces_raw.jsonl")
 OUTPUT_FILE = Path("data/traces_filtered.jsonl")
+REPORT_FILE = Path("data/filter_report.json")
 
 MIN_THINKING_TOKENS = 50
 
 
 def extract_final_number(text):
-    """Extract the last number from a response string."""
-    # Look for numbers (including negatives and decimals)
     numbers = re.findall(r"-?\d+\.?\d*", text.replace(",", ""))
     return float(numbers[-1]) if numbers else None
 
 
-def extract_boxed_answer(text):
-    """Extract answer from \\boxed{...} format (MATH dataset)."""
-    match = re.search(r"\\boxed\{([^}]+)\}", text)
-    return match.group(1).strip() if match else None
-
-
 def check_gsm8k_answer(response, expected):
-    """Check if the model's final numeric answer matches the expected GSM8K answer."""
     try:
         expected_num = float(expected.replace(",", ""))
     except (ValueError, AttributeError):
-        return None  # Can't verify, keep it
-
+        return None
     model_num = extract_final_number(response)
     if model_num is None:
         return False
@@ -38,29 +32,23 @@ def check_gsm8k_answer(response, expected):
 
 
 def check_arc_answer(response, expected):
-    """Check if ARC multiple choice answer matches."""
-    # Look for the answer letter in the response
     response_upper = response.strip().upper()
-    # Check if the expected letter appears as a clear answer choice
-    # Look for patterns like "The answer is A" or just the letter at the end
     patterns = [
-        rf"\b{expected}\b\s*[\.\)]",       # "A." or "A)"
-        rf"answer\s+is\s+{expected}\b",     # "answer is A"
+        rf"\b{expected}\b\s*[\.\)]",
+        rf"answer\s+is\s+{expected}\b",
         rf"correct\s+answer\s+is\s+{expected}\b",
-        rf"\({expected}\)",                  # "(A)"
+        rf"\({expected}\)",
     ]
     for pat in patterns:
         if re.search(pat, response_upper):
             return True
-    # Fallback: check if the letter is the last single capital letter
     last_caps = re.findall(r"\b([A-E])\b", response_upper)
     if last_caps and last_caps[-1] == expected:
         return True
-    return None  # Uncertain
+    return None
 
 
 def is_repetitive(text):
-    """Check if text has excessive repetition."""
     sentences = [s.strip() for s in text.split(".") if s.strip()]
     if len(sentences) < 4:
         return False
@@ -75,6 +63,9 @@ def main():
             traces.append(json.loads(line))
 
     stats = Counter()
+    # Track drop reasons with examples
+    dropped = defaultdict(list)  # reason -> list of examples
+    kept_examples = defaultdict(list)  # source -> list of examples (first 2 each)
     kept = []
 
     for entry in traces:
@@ -84,55 +75,162 @@ def main():
         expected = entry.get("expected_answer", "")
 
         stats[f"{source}_total"] += 1
-
-        # Check minimum thinking length
         thinking_tokens = len(thinking.split())
+
+        # Check: minimum thinking length
         if thinking_tokens < MIN_THINKING_TOKENS:
-            stats[f"{source}_short_thinking"] += 1
+            stats[f"{source}_dropped_short_thinking"] += 1
+            if len(dropped["short_thinking"]) < 3:
+                dropped["short_thinking"].append({
+                    "id": entry["id"],
+                    "source": source,
+                    "problem": entry["problem"][:200],
+                    "thinking_tokens": thinking_tokens,
+                    "thinking_preview": thinking[:200],
+                })
             continue
 
-        # Check for repetitive thinking
+        # Check: repetitive thinking
         if is_repetitive(thinking):
-            stats[f"{source}_repetitive"] += 1
+            stats[f"{source}_dropped_repetitive"] += 1
+            if len(dropped["repetitive"]) < 3:
+                dropped["repetitive"].append({
+                    "id": entry["id"],
+                    "source": source,
+                    "problem": entry["problem"][:200],
+                    "thinking_preview": thinking[:300],
+                })
             continue
 
-        # Source-specific verification
+        # Check: source-specific answer verification
         if source == "gsm8k":
             result = check_gsm8k_answer(response, expected)
             if result is False:
-                stats["gsm8k_wrong_answer"] += 1
+                stats["gsm8k_dropped_wrong_answer"] += 1
+                if len(dropped["wrong_answer"]) < 3:
+                    dropped["wrong_answer"].append({
+                        "id": entry["id"],
+                        "source": source,
+                        "problem": entry["problem"][:200],
+                        "expected": expected,
+                        "model_response_tail": response[-200:],
+                    })
                 continue
 
         elif source == "math":
-            # MATH answers are complex (LaTeX), harder to auto-verify
-            # Just check that a boxed answer or clear answer exists in response
             if "boxed" not in response and "answer" not in response.lower():
-                stats["math_no_answer"] += 1
+                stats["math_dropped_no_answer"] += 1
+                if len(dropped["no_answer"]) < 3:
+                    dropped["no_answer"].append({
+                        "id": entry["id"],
+                        "source": source,
+                        "problem": entry["problem"][:200],
+                        "response_preview": response[:300],
+                    })
                 continue
 
         elif source == "arc":
             result = check_arc_answer(response, expected)
             if result is False:
-                stats["arc_wrong_answer"] += 1
+                stats["arc_dropped_wrong_answer"] += 1
+                if len(dropped["wrong_answer"]) < 3:
+                    dropped["wrong_answer"].append({
+                        "id": entry["id"],
+                        "source": source,
+                        "problem": entry["problem"][:200],
+                        "expected": expected,
+                        "model_response_tail": response[-200:],
+                    })
                 continue
 
-        # humaneval: keep all (code verification is complex)
-
+        # Kept
         stats[f"{source}_kept"] += 1
+        entry["thinking_tokens"] = thinking_tokens
         kept.append(entry)
+
+        # Save a couple of examples per source for the devlog
+        if len(kept_examples[source]) < 2:
+            kept_examples[source].append({
+                "id": entry["id"],
+                "problem": entry["problem"][:300],
+                "thinking_tokens": thinking_tokens,
+                "thinking_preview": thinking[:500],
+                "response_preview": response[:300],
+            })
+
+    # Thinking length distribution
+    thinking_lengths = [e["thinking_tokens"] for e in kept]
+    if thinking_lengths:
+        thinking_lengths.sort()
+        n = len(thinking_lengths)
+        length_stats = {
+            "min": thinking_lengths[0],
+            "p25": thinking_lengths[n // 4],
+            "median": thinking_lengths[n // 2],
+            "p75": thinking_lengths[3 * n // 4],
+            "max": thinking_lengths[-1],
+            "mean": int(sum(thinking_lengths) / n),
+        }
+    else:
+        length_stats = {}
 
     # Write filtered traces
     with open(OUTPUT_FILE, "w") as f:
         for entry in kept:
             f.write(json.dumps(entry) + "\n")
 
-    print(f"Filtering complete!")
-    print(f"Input: {len(traces)} traces")
-    print(f"Output: {len(kept)} traces -> {OUTPUT_FILE}")
+    # Write report
+    report = {
+        "summary": {
+            "total_input": len(traces),
+            "total_kept": len(kept),
+            "total_dropped": len(traces) - len(kept),
+            "keep_rate_pct": round(100 * len(kept) / len(traces), 1) if traces else 0,
+        },
+        "by_source": {},
+        "thinking_length_distribution": length_stats,
+        "drop_examples": dict(dropped),
+        "kept_examples": dict(kept_examples),
+    }
+
+    for source in ["gsm8k", "math", "arc", "humaneval"]:
+        total = stats.get(f"{source}_total", 0)
+        k = stats.get(f"{source}_kept", 0)
+        report["by_source"][source] = {
+            "total": total,
+            "kept": k,
+            "dropped": total - k,
+            "keep_rate_pct": round(100 * k / total, 1) if total else 0,
+            "drop_reasons": {
+                k2.replace(f"{source}_dropped_", ""): v
+                for k2, v in stats.items()
+                if k2.startswith(f"{source}_dropped_")
+            },
+        }
+
+    with open(REPORT_FILE, "w") as f:
+        json.dump(report, f, indent=2)
+
+    # Print summary
+    print(f"\n{'='*50}")
+    print(f"FILTER RESULTS")
+    print(f"{'='*50}")
+    print(f"Input:   {len(traces)}")
+    print(f"Kept:    {len(kept)} ({report['summary']['keep_rate_pct']}%)")
+    print(f"Dropped: {len(traces) - len(kept)}")
     print()
-    print("Stats:")
-    for key in sorted(stats.keys()):
-        print(f"  {key}: {stats[key]}")
+    for source, d in report["by_source"].items():
+        if d["total"] > 0:
+            print(f"  {source:12s}: {d['kept']:4d}/{d['total']:4d} kept ({d['keep_rate_pct']}%)")
+            for reason, count in d["drop_reasons"].items():
+                print(f"               - {count} dropped: {reason}")
+    print()
+    print(f"Thinking length (tokens): min={length_stats.get('min','?')} "
+          f"median={length_stats.get('median','?')} "
+          f"max={length_stats.get('max','?')} "
+          f"mean={length_stats.get('mean','?')}")
+    print(f"\nFull report: {REPORT_FILE}")
+    print(f"Filtered traces: {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

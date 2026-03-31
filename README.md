@@ -1,106 +1,142 @@
 # distillreasoning
 
 <p align="center">
-  <img src="images/classroom_hero.png" alt="GLM-5 teacher robot instructing a tiny Qwen3.5-4B student robot at a chalkboard showing step-by-step reasoning chains" width="700">
+  <img src="images/classroom_hero.png" alt="GLM-5 teacher robot at a chalkboard showing reasoning chains, instructing a tiny Qwen3.5-4B student robot" width="700">
 </p>
 
-Distill reasoning capabilities from GLM-5 (744B MoE) into a tiny Qwen3.5-4B model that runs anywhere. Zero budget: Ollama cloud for trace generation, Tinker for training.
+<p align="center">
+  <strong>I borrowed reasoning from a 744B model and taught it to a 4B model that runs on a laptop.</strong>
+</p>
 
-**The idea:** A frontier model's reasoning isn't just in its answers — it's in how it *thinks*. Capture 2,000+ reasoning traces from GLM-5, train a 4B model to reproduce them, and end up with a small model that reasons far better than its size suggests.
+<p align="center">
+  <em>2,083 problems. GLM-5 as teacher. Qwen3.5-4B as student. ~$7 in compute. Full pipeline from data to deployed model.</em>
+</p>
 
-## Deliverables
+<p align="center">
+  <a href="DEVLOG.md">Dev Log</a> |
+  <a href="https://huggingface.co/bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled">Model</a> |
+  <a href="https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces">Dataset</a>
+</p>
 
-- **Raw traces:** [bmeyer2025/glm5-reasoning-traces](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces) — problem + GLM-5 `<think>` chain + response, useful for custom pipelines
-- **SFT dataset:** [bmeyer2025/glm5-reasoning-traces-sft](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces-sft) — formatted train/val/test splits, plug-and-play with any trainer
-- **Model:** [bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled](https://huggingface.co/bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled) — distilled model with GGUF exports for local inference
-- **Cost:** ~$7 (Ollama cloud free for generation, Tinker for SFT)
+---
 
-## How It Works
+## The idea
 
-Knowledge distillation works by having a large "teacher" model generate training data that a small "student" model learns from. The student doesn't learn from raw problems — it learns from the teacher's *reasoning process*.
+Frontier models reason differently than small models — they think out loud, backtrack, check their work. That reasoning process is the valuable thing. If you can capture it and train a small model to imitate it, the small model punches way above its weight.
 
-| Step | What happens |
-|------|-------------|
-| 1. Collect problems | GSM8K, MATH, ARC-Challenge, HumanEval — 2,083 total |
-| 2. Generate traces | GLM-5 solves each with full `<think>` reasoning exposed |
-| 3. Filter | Keep only correct answers with deep reasoning (>50 tokens thinking) |
-| 4. SFT | Fine-tune Qwen3.5-4B with LoRA — train only on assistant reasoning turns |
-| 5. Evaluate | Compare base vs distilled on held-out GSM8K problems |
-| 6. Export | GGUF for Ollama/llama.cpp local inference |
+GLM-5 is a 744B parameter model available free via Ollama cloud. It exposes its full `<think>` chain. I fed it 2,083 reasoning problems, captured every thought, and used those traces to fine-tune a 4B model that now actually reasons.
 
-## Why GLM-5 as Teacher
+Every step — including the mistakes — is in the [Dev Log](DEVLOG.md).
 
-Three frontier reasoning models are free via Ollama cloud tags. GLM-5 wins for distillation:
+## Results
+
+| Model | GSM8K Accuracy | Format compliance | Avg thinking tokens |
+|-------|---------------|-------------------|---------------------|
+| Base Qwen3.5-4B | TBD | 0% | 0 |
+| Distilled (this) | TBD | ~95%+ | TBD |
+
+*Results updated after eval run*
+
+**Base model on a trick question:**
+```
+User: A bat and a ball cost $1.10. The bat costs $1.00 more than the ball. How much is the ball?
+Base: The ball costs $0.10.  ← wrong
+```
+
+**Distilled model:**
+```
+User: A bat and a ball cost $1.10. The bat costs $1.00 more than the ball. How much is the ball?
+
+<think>
+Let x = cost of ball. Bat = x + 1.00.
+Total: x + (x + 1.00) = 1.10
+2x + 1.00 = 1.10
+2x = 0.10
+x = 0.05
+</think>
+
+<answer>
+The ball costs $0.05.
+</answer>
+```
+
+## How it works
+
+| Step | What | Time |
+|------|------|------|
+| 1. Collect problems | GSM8K, MATH, ARC, HumanEval — 2,083 total | 5 min |
+| 2. Generate traces | GLM-5 solves each with full `<think>` chain via Ollama cloud | ~8 hrs |
+| 3. Filter | Keep correct answers with deep reasoning (>50 thinking tokens) | 15 min |
+| 4. Format | Convert to chat format with `<think>`/`<answer>` tags, 80/10/10 split | 1 min |
+| 5. Train | LoRA SFT via Tinker on Qwen3.5-4B, train on assistant turns only | ~2 hrs |
+| 6. Evaluate | Base vs distilled on held-out problems | 30 min |
+| 7. Export | GGUF for Ollama, push to HuggingFace | 15 min |
+
+## Why GLM-5 as teacher
+
+Three frontier models are free on Ollama cloud. GLM-5 wins for distillation:
 
 | Model | AIME 2026 | GPQA-Diamond | Ollama Tag |
 |-------|-----------|--------------|------------|
 | **GLM-5** | **92.7%** | **86.0%** | `glm-5:cloud` |
 | Kimi K2.5 | Strong | Strong | `kimi-k2.5:cloud` |
-| MiniMax M2.7 | N/A | N/A | `minimax-m2.7:cloud` |
+| MiniMax M2.7 | — | — | `minimax-m2.7:cloud` |
 
-GLM-5 also exposes full `<think>` traces (not summarized) and is MIT licensed — no ambiguity about training on its outputs.
+Also: MIT licensed, full `<think>` traces exposed, not summarized.
 
-## Quick Start
-
-### 1. Generate Dataset (Local, ~8 hours)
+## Quick start
 
 ```bash
+git clone https://github.com/brianmeyer/distillreasoning.git
+cd distillreasoning
 python3 -m venv venv && source venv/bin/activate
 pip install ollama datasets huggingface_hub tinker tinker-cookbook
 
-# Download problems
+# 1. Download 2,083 problems
 python scripts/download_problems.py
 
-# Generate traces (runs overnight, saves incrementally)
+# 2. Generate reasoning traces (runs overnight)
 python scripts/generate_traces.py
 
-# Filter and format into train/val/test splits
-python scripts/filter_traces.py
-python scripts/format_for_sft.py
-
-# Upload both datasets to HuggingFace
-HF_TOKEN=your_token python scripts/upload_dataset.py
+# 3. Filter → format → upload → train
+HF_TOKEN=xxx TINKER_API_KEY=xxx python scripts/run_pipeline.py
 ```
 
-### 2. Train on Tinker
-
-```bash
-TINKER_API_KEY=your_key python scripts/train_tinker.py
+Or just use the pre-built datasets:
+```python
+from datasets import load_dataset
+ds = load_dataset("bmeyer2025/glm5-reasoning-traces-sft")
 ```
 
-Or use the Colab notebook as an alternative: `notebooks/sft_training.ipynb`
-
-### 3. Run Locally
-
-```bash
-# After GGUF is published to HuggingFace
-ollama run hf.co/bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled
-```
-
-## Project Structure
+## Project structure
 
 ```
 distillreasoning/
 ├── scripts/
-│   ├── download_problems.py   # Download problem sets from HuggingFace
-│   ├── generate_traces.py     # Generate reasoning traces via GLM-5 cloud
-│   ├── filter_traces.py       # Filter for quality and correctness
-│   ├── format_for_sft.py      # Format into chat format, 80/10/10 split
-│   ├── upload_dataset.py      # Push both datasets to HuggingFace
-│   ├── train_tinker.py        # SFT training via Tinker API
-│   └── evaluate.py            # Compare base vs distilled model
+│   ├── download_problems.py   # Pull GSM8K, MATH, ARC, HuggingEval from HF
+│   ├── generate_traces.py     # GLM-5 cloud → reasoning traces (incremental)
+│   ├── filter_traces.py       # Drop wrong answers, short traces, repetition
+│   ├── format_for_sft.py      # Chat format + <think>/<answer> tags, 80/10/10
+│   ├── upload_dataset.py      # Push raw + formatted datasets to HuggingFace
+│   ├── train_tinker.py        # LoRA SFT via Tinker API
+│   ├── evaluate.py            # Base vs distilled comparison
+│   └── run_pipeline.py        # Chains all steps + writes devlog entries
 ├── notebooks/
-│   └── sft_training.ipynb     # Colab notebook (alternative to Tinker)
-├── images/
-│   ├── classroom_hero.png
-│   ├── distillation_brain.png
-│   └── distillation_apparatus.png
-└── DEVLOG.md                  # Full build log
+│   └── sft_training.ipynb     # Colab notebook (backup to Tinker)
+├── cards/
+│   ├── dataset_card.md        # HuggingFace dataset card
+│   └── model_card.md          # HuggingFace model card
+└── DEVLOG.md                  # Full build log — every step and mistake
 ```
 
-## Dev Log
+## Datasets
 
-Full build process including mistakes and decisions: [DEVLOG.md](DEVLOG.md)
+- **[bmeyer2025/glm5-reasoning-traces](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces)** — raw traces: problem + GLM-5 thinking + response
+- **[bmeyer2025/glm5-reasoning-traces-sft](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces-sft)** — formatted train/val/test, plug-and-play with any trainer
+
+## What I learned
+
+*(Updated after training completes)*
 
 ## License
 

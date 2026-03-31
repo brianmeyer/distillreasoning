@@ -477,3 +477,43 @@ Also created `cards/dataset_card.md` and `cards/model_card.md` — full HuggingF
 **Ollama Cloud Tags**: Free API endpoints for frontier models. The model runs on Ollama's servers, you get a local-feeling API. Currently available: GLM-5, Kimi K2.5, MiniMax M2.7. No API key needed, no rate limits (beyond reasonable use), no cost.
 
 **GGUF**: A file format for running LLMs locally via llama.cpp/Ollama. Supports various quantization levels (q4_k_m for speed, q8_0 for quality). The end goal — a model file you can run on your laptop.
+
+---
+
+*Trace generation running (ETA ~4 AM). Phases 2-7 below will be filled in automatically as each pipeline step runs.*
+
+---
+
+## Phase 2: Filtering
+
+*Pending — will run when generation finishes*
+
+---
+
+## Phase 3: Formatting
+
+*Pending*
+
+---
+
+## Phase 4: Dataset Upload
+
+*Pending*
+
+---
+
+## Phase 5: SFT Training
+
+*Pending*
+
+---
+
+## Phase 6: Evaluation
+
+*Pending*
+
+---
+
+## Phase 7: Export and Publish
+
+*Pending*
