@@ -648,6 +648,51 @@ Rewrote with **8 quality gates** applied in order:
 
 These are preliminary numbers on partial data (~70% generated). Final numbers will change but the patterns are clear.
 
+### 2:30 PM — Stratified Splitting
+
+Caught a problem with the format script — it was doing a naive random shuffle then splitting 80/10/10. That means the test set could end up with zero HumanEval or zero MATH problems by luck of the draw. Bad for evaluation.
+
+Rewrote `format_for_sft.py` with **stratified splitting**: each domain (gsm8k, math, arc, humaneval) gets proportional representation in every split. Every domain is guaranteed to have samples in train, val, AND test. No domain disappears.
+
+Verified on GLM-5 partial data:
+
+| Source | Total | Train | Val | Test |
+|--------|-------|-------|-----|------|
+| gsm8k | 814 | 651 | 81 | 82 |
+| arc | 256 | 204 | 25 | 27 |
+| humaneval | 101 | 80 | 10 | 11 |
+| math | 78 | 62 | 7 | 9 |
+
+### 2:45 PM — Spot Check: Are the Answers Actually Right?
+
+Good filters mean nothing if we don't verify the output. Did a random spot check — 2 samples per source per teacher, 16 traces total. Checked model's final answer against expected answer.
+
+**Result: 16/16 correct.** Every trace in the filtered dataset arrived at the right answer with proper reasoning chains. The 8-gate filter is working — wrong answers are being caught and dropped before they can poison the training data.
+
+Some examples of what survived filtering:
+- GLM-5 on gsm8k_853 (hotel rooms): 968 words of thinking, correct answer of 15 hours
+- Kimi on math_3786 (algebraic equation): 160 words of thinking, correct answer of x=-5 with verification step
+- Both teachers on ARC: proper elimination reasoning, correct letter choices
+
+The contrast between teachers is visible even in spot checks. GLM-5 wrote 968 words for a word problem. Kimi wrote 251 words for a similar difficulty problem. Same correct answer, very different reasoning depth. This is exactly the variable we're testing.
+
+### Status — 3:00 PM
+
+Both generators past 70%, running side by side. Everything downstream is built, tested, and ready. Waiting on generation to complete (~2-3 hours).
+
+| Component | Status |
+|-----------|--------|
+| Trace generation (GLM-5) | 🔄 1,514/2,083 (73%) |
+| Trace generation (Kimi) | 🔄 1,488/2,083 (71%) |
+| 8-gate filter | ✅ Tested, 83-86% keep rate |
+| Stratified formatter | ✅ Tested, domains balanced |
+| Spot check | ✅ 16/16 correct |
+| Upload script | ✅ Ready (4 HF datasets) |
+| Tinker training | ✅ Script ready, API verified |
+| GitHub repo | ✅ Current |
+| Linear tracking | ✅ 9 issues (REC-216 to REC-224) |
+| Devlog | ✅ Up to date |
+
 ---
 
 ## Phase 2: Filtering
