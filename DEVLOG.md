@@ -603,6 +603,51 @@ LoRA is used in both SFT and GRPO — it's the adapter method, not a separate tr
 
 Created a Linear project to track all of this: [Distill Reasoning](https://linear.app/recallforge/project/distill-reasoning-06471c1b227f) with 9 issues covering every phase from trace generation through final publish.
 
+### 2:00 PM — Overhauling the Filter Pipeline
+
+Took a hard look at the filter script and realized it was pretty weak. The original version only checked:
+- Minimum thinking length (50 tokens)
+- Sentence-level repetition
+- GSM8K numeric answer matching
+- ARC letter matching
+- MATH: just checking for the word "answer" (way too loose)
+- HumanEval: no verification at all
+
+**The problem:** dataset quality is everything in distillation. A smaller, clean dataset beats a larger noisy one. If we feed the student model traces where GLM-5 got the answer wrong, we're teaching it to reason *incorrectly*. If we include traces where the model rambles for 6,000 words, we're wasting training tokens on noise.
+
+Rewrote with **8 quality gates** applied in order:
+
+| Gate | What it checks |
+|------|---------------|
+| 1. Non-empty | Thinking and response must exist |
+| 2. Language quality | No encoding artifacts, garbled text, excessive non-ASCII |
+| 3. Length bounds | Min 50, max 4,000 thinking tokens. Min 5 response tokens |
+| 4. Correctness | Source-specific answer verification (numeric, multiple choice, boxed LaTeX, code) |
+| 5. Repetition | Sentence deduplication + trigram frequency analysis |
+| 6. Coherence | Does the thinking actually reference the problem's content? |
+| 7. Self-contradiction | Max 2 self-corrections (one is fine, three = confused) |
+| 8. Structured reasoning | Must contain step indicators (step 1, first, therefore, etc.) |
+
+**Test run on partial data (both generators still running):**
+
+| Metric | GLM-5 (1,488 traces) | Kimi (1,455 traces) |
+|--------|---------------------|---------------------|
+| **Keep rate** | **83.9%** | **86.3%** |
+| Wrong answers (GSM8K) | 84 (8.9%) | 135 (14.6%) |
+| Too long (>4000 tok) | 65 | 14 |
+| No reasoning structure | 33 | 0 |
+| Incoherent | 15 | 18 |
+| Median thinking tokens | 418 | 320 |
+| Mean thinking tokens | 661 | 531 |
+
+**Early observations already visible:**
+1. **GLM-5 is more accurate on math** — 8.9% wrong answer rate vs Kimi's 14.6%. Matches GLM-5's higher AIME benchmark.
+2. **Kimi is more concise** — median 320 vs 418 thinking tokens, and far fewer "too long" drops (14 vs 65). GLM-5 tends to over-explain.
+3. **Kimi is better on ARC/HumanEval** — 98.6% and 98.2% keep rates vs GLM-5's 88.3% and 91.8%. Concise reasoning works well for multiple choice and code.
+4. **MATH is hard for both** — GLM-5 54.5%, Kimi 64.8%. Competition math pushes both teachers.
+
+These are preliminary numbers on partial data (~70% generated). Final numbers will change but the patterns are clear.
+
 ---
 
 ## Phase 2: Filtering
