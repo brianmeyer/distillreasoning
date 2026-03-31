@@ -442,7 +442,7 @@ Generated three images in Gemini matching the tinyllm visual style (dark navy ba
 
 One image per destination — GitHub gets the classroom, dataset card gets the brain, model card gets the apparatus.
 
-GitHub repo description updated to: *"Steal reasoning from a 744B model. Teach it to a 4B model. Run it on your laptop. Zero cost."*
+GitHub repo description updated to: *"Borrow reasoning from a 744B model. Teach it to a 4B model. Run it on your laptop. Zero cost."*
 
 Also created `cards/dataset_card.md` and `cards/model_card.md` — full HuggingFace repo cards with metadata frontmatter, usage examples, eval table placeholder. Both get uploaded automatically by `upload_dataset.py`.
 
