@@ -9,11 +9,15 @@ from pathlib import Path
 
 random.seed(42)
 
-INPUT_FILE = Path("data/traces_filtered.jsonl")
-TRAIN_FILE = Path("data/train.jsonl")
-VAL_FILE = Path("data/validation.jsonl")
-TEST_FILE = Path("data/test.jsonl")
-REPORT_FILE = Path("data/format_report.json")
+import sys
+
+# Accept teacher name as argument: python format_for_sft.py [glm5|kimi]
+TEACHER = sys.argv[1] if len(sys.argv) > 1 else "glm5"
+INPUT_FILE = Path(f"data/traces_filtered_{TEACHER}.jsonl")
+TRAIN_FILE = Path(f"data/train_{TEACHER}.jsonl")
+VAL_FILE = Path(f"data/validation_{TEACHER}.jsonl")
+TEST_FILE = Path(f"data/test_{TEACHER}.jsonl")
+REPORT_FILE = Path(f"data/format_report_{TEACHER}.json")
 
 SYSTEM_MESSAGE = "You are a helpful reasoning assistant. Think through problems step by step before answering."
 

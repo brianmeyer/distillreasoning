@@ -512,7 +512,46 @@ This matters because **not all models allow this**. OpenAI and Anthropic's terms
 
 GLM-5, DeepSeek R1, and a few others are genuinely MIT — outputs included. This is one of the key reasons we chose GLM-5 as the teacher.
 
-*Trace generation running at ~5/min with 4 workers (ETA ~7 PM). Phases 2-7 below will be filled in automatically as each pipeline step runs.*
+### 1:30 PM — Adding Kimi K2.5 as a Second Teacher
+
+Decided to make this a **controlled experiment**: same problems, same student model, different teacher. If we train two separate Qwen3.5-4B models — one on GLM-5 traces, one on Kimi K2.5 traces — we can answer: **does the teacher matter, or does any frontier model work?**
+
+The four-way comparison:
+
+| Model | Training | Question it answers |
+|-------|----------|---------------------|
+| Base Qwen3.5-4B | None | How bad is the baseline? |
+| GLM-5 distilled | SFT on GLM-5 traces | How does the best math reasoner do? |
+| Kimi K2.5 distilled | SFT on Kimi traces | Does a different reasoning style matter? |
+| Combined | SFT on both mixed | Is more diverse data better? |
+
+**Why this is interesting:** GLM-5 generates very verbose traces (468+ words for simple math). Kimi K2.5 is more concise (113 words for the same problem). If both produce similar distilled models, the style doesn't matter — it's the *correctness* of the reasoning that transfers. If GLM-5's verbose style wins, it suggests that richer training signal helps. If Kimi wins despite being more concise, it suggests the student prefers cleaner examples.
+
+Kimi K2.5 is also free via Ollama cloud and MIT-compatible, so there's no cost or licensing issue.
+
+**Concurrency test:** Ran GLM-5 and Kimi requests simultaneously:
+```
+GLM-5: 23.7s ✅
+Kimi:  23.7s ✅
+GLM-5: 27.0s ✅
+Kimi:  26.9s ✅
+```
+Both work concurrently but slower — responses went from ~5-10s to ~25s. Both models running at the same time puts more load on Ollama's infrastructure. Set Kimi to 2 workers (vs GLM-5's 4) to be conservative.
+
+GLM-5 generation rate dropped from ~6/min to ~3/min with Kimi running alongside. Kimi doing ~2/min. Combined throughput: ~5/min. Net effect is about the same total rate but generating two datasets simultaneously.
+
+**Renamed files:**
+- `traces_raw.jsonl` → `traces_raw_glm5.jsonl` (avoid confusion)
+- `traces_raw_kimi.jsonl` (new)
+- All downstream scripts now accept `[glm5|kimi]` as an argument
+
+**New HuggingFace dataset plan:**
+- `bmeyer2025/glm5-reasoning-traces` — raw GLM-5 traces
+- `bmeyer2025/glm5-reasoning-traces-sft` — formatted GLM-5 traces
+- `bmeyer2025/kimi-reasoning-traces` — raw Kimi traces
+- `bmeyer2025/kimi-reasoning-traces-sft` — formatted Kimi traces
+
+*Both generators running. GLM-5: 227/2083, Kimi: 6/2083. ETA: both ~6-8 hours.*
 
 ---
 

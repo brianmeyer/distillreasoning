@@ -8,9 +8,13 @@ import re
 from pathlib import Path
 from collections import Counter, defaultdict
 
-INPUT_FILE = Path("data/traces_raw.jsonl")
-OUTPUT_FILE = Path("data/traces_filtered.jsonl")
-REPORT_FILE = Path("data/filter_report.json")
+import sys
+
+# Accept teacher name as argument: python filter_traces.py [glm5|kimi]
+TEACHER = sys.argv[1] if len(sys.argv) > 1 else "glm5"
+INPUT_FILE = Path(f"data/traces_raw_{TEACHER}.jsonl")
+OUTPUT_FILE = Path(f"data/traces_filtered_{TEACHER}.jsonl")
+REPORT_FILE = Path(f"data/filter_report_{TEACHER}.json")
 
 MIN_THINKING_TOKENS = 50
 

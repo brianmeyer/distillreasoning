@@ -1,7 +1,7 @@
-"""Generate reasoning traces from GLM-5 cloud via Ollama for each problem.
+"""Generate reasoning traces from Kimi K2.5 cloud via Ollama.
 
-Uses parallel workers for ~3-4x speedup over sequential requests.
-Saves incrementally and supports resume.
+Same pipeline as GLM-5 but using Kimi as the teacher model.
+Runs with fewer workers to avoid rate limiting alongside GLM-5.
 """
 
 import json
@@ -15,21 +15,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 random.seed(42)
 
 INPUT_FILE = Path("data/problems.jsonl")
-OUTPUT_FILE = Path("data/traces_raw_glm5.jsonl")
+OUTPUT_FILE = Path("data/traces_raw_kimi.jsonl")
 
 SYSTEM_PROMPT = (
     "You are a reasoning expert. Think through each problem step by step "
     "in detail before giving your final answer. Show all your work."
 )
 
-MODEL = "glm-5:cloud"
-MAX_PROBLEMS = 9999  # Use all available problems
-NUM_WORKERS = 4      # Parallel API calls
-DELAY_SECONDS = 0.5  # Small delay between submitting new requests
+MODEL = "kimi-k2.5:cloud"
+NUM_WORKERS = 2      # Fewer workers — GLM-5 is also running
+DELAY_SECONDS = 1.0  # Slightly more conservative
 MAX_RETRIES = 3
 RETRY_BACKOFF = 5
 
-# Thread-safe file writing
 write_lock = threading.Lock()
 counter_lock = threading.Lock()
 completed_count = 0
@@ -57,7 +55,6 @@ def load_completed_ids():
 
 
 def generate_trace(problem):
-    """Send a problem to GLM-5 and capture the full response with thinking."""
     global completed_count
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -82,9 +79,9 @@ def generate_trace(problem):
                 "expected_answer": problem.get("expected_answer", ""),
                 "thinking": thinking,
                 "response": content,
+                "teacher": "kimi-k2.5",
             }
 
-            # Thread-safe write
             with write_lock:
                 with open(OUTPUT_FILE, "a") as f:
                     f.write(json.dumps(entry) + "\n")
@@ -106,7 +103,7 @@ def generate_trace(problem):
                 with counter_lock:
                     completed_count += 1
                     current = completed_count
-                return problem["id"], problem["source"], -1, current  # -1 = failed
+                return problem["id"], problem["source"], -1, current
 
 
 def main():
@@ -114,25 +111,12 @@ def main():
 
     problems = load_problems()
     completed_ids = load_completed_ids()
-
-    # Sample down if needed
-    if len(problems) > MAX_PROBLEMS:
-        by_source = {}
-        for p in problems:
-            by_source.setdefault(p["source"], []).append(p)
-        sampled = []
-        for source, items in by_source.items():
-            ratio = len(items) / len(problems)
-            n = max(1, int(ratio * MAX_PROBLEMS))
-            sampled.extend(random.sample(items, min(n, len(items))))
-        problems = sampled[:MAX_PROBLEMS]
-        random.shuffle(problems)
-
     remaining = [p for p in problems if p["id"] not in completed_ids]
     total = len(problems)
     done = len(completed_ids)
     completed_count = done
 
+    print(f"Model: {MODEL}")
     print(f"Total problems: {total}")
     print(f"Already completed: {done}")
     print(f"Remaining: {len(remaining)}")
@@ -147,9 +131,8 @@ def main():
         for i, problem in enumerate(remaining):
             future = executor.submit(generate_trace, problem)
             futures[future] = problem
-            # Small stagger to avoid burst
             if i < NUM_WORKERS:
-                time.sleep(0.2)
+                time.sleep(0.3)
             else:
                 time.sleep(DELAY_SECONDS)
 
@@ -165,7 +148,7 @@ def main():
 
     final_count = sum(1 for _ in open(OUTPUT_FILE))
     elapsed = time.time() - start_time
-    print(f"\nDone! {final_count} traces in {elapsed/3600:.1f} hours")
+    print(f"\nDone! {final_count} Kimi traces in {elapsed/3600:.1f} hours")
 
 
 if __name__ == "__main__":
