@@ -480,7 +480,29 @@ Also created `cards/dataset_card.md` and `cards/model_card.md` — full HuggingF
 
 ---
 
-*Trace generation running (ETA ~4 AM). Phases 2-7 below will be filled in automatically as each pipeline step runs.*
+### 12:30 PM — Parallelizing Trace Generation (3.5x Speedup)
+
+The sequential generator was averaging ~2 traces/minute — each request takes 5-15 seconds for the API response, plus the 2-second rate-limiting delay we added to be safe. At that rate: **21 hours** for 2,083 problems. Overnight plus most of tomorrow.
+
+Tested whether Ollama cloud handles concurrent requests:
+```python
+# Sequential: 12.9s for 4 problems
+# Parallel (4 workers): 8.9s for 4 problems → 1.4x on easy problems
+```
+
+It works! Rewrote `generate_traces.py` with:
+- **4 parallel workers** via `ThreadPoolExecutor`
+- **0.5s delay** between submitting requests (down from 2s)
+- Thread-safe file writing with locks
+- Per-trace rate counter (traces/hour)
+
+Tested on simple problems first to check for rate limiting. Result: **zero failures, zero empty traces, zero rate limit errors.** Ollama cloud handles 4 concurrent requests fine.
+
+New rate: **~5 traces/minute** (up from ~2/min). ETA dropped from **21 hours → ~6.5 hours**. Should finish by ~7 PM.
+
+One gotcha: nohup buffers Python stdout even with `-u` when output comes from thread pools. The traces were being saved correctly to the JSONL file, but the console log wasn't updating. Fixed by using `python -u` (unbuffered) — but the thread-to-main-thread print flow still buffers. Not a real problem since we verify progress by counting lines in the output file, not by reading the log. This is the same "Python output buffering" lesson from tinyllm.
+
+*Trace generation running at ~5/min with 4 workers (ETA ~7 PM). Phases 2-7 below will be filled in automatically as each pipeline step runs.*
 
 ---
 
