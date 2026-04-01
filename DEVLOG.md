@@ -869,7 +869,51 @@ Loss dropping from 0.75 → 0.41 in 3 steps on 4 examples. The pipeline is corre
 
 ## Phase 6: Evaluation
 
-*Pending*
+### The Contamination Disaster
+
+First eval run showed distilled models at 75-80% on GSM8K vs 35% base. Looked amazing. Too amazing.
+
+Then I checked: **94% of our GSM8K eval problems were in the training data.** We trained on the GSM8K test split, then evaluated on... the GSM8K test split. The model wasn't reasoning — it was reciting memorized answers.
+
+This is **benchmark contamination** — one of the most common mistakes in ML evaluation, and exactly the kind of thing that makes published results unreliable. We almost published garbage numbers.
+
+**What went wrong:**
+- `download_problems.py` pulled GSM8K **test** split (1,319 problems)
+- Generated traces for all of them
+- Trained on those traces
+- `evaluate.py` sampled from GSM8K **test** split
+- 94% overlap = model has seen these exact problems
+
+**The fix — clean benchmarks with zero overlap:**
+
+| Benchmark | Strategy | Contamination |
+|-----------|----------|---------------|
+| GSM8K **train split** | Training used test only — train is completely clean | 0% |
+| MATH (seed 999) | Training sampled 200 with seed 42 — different seed gives different problems | Verified 0% |
+| ARC (seed 999) | Same approach — different seed avoids the 400 we trained on | Verified 0% |
+| MMLU-Pro | Never in our training pipeline at all | 0% |
+| Trick questions | Hand-written, not from any dataset | 0% |
+
+Every eval now runs a contamination check before scoring — programmatically verifies zero overlap between eval set and training data.
+
+**Lesson for the article:** Always verify your eval data is clean. A 2-minute overlap check would have caught this immediately. We got lucky catching it before publishing.
+
+### Eval Setup — 8 Models, 4 Benchmarks
+
+| # | Model | Params | Why |
+|---|-------|--------|-----|
+| 1 | Base Qwen3.5-4B | 4B | Our baseline |
+| 2 | **Distilled GLM-5** | 4B | Teacher comparison |
+| 3 | **Distilled Kimi** | 4B | Teacher comparison |
+| 4 | **Distilled Combined** | 4B | Best of both? |
+| 5 | Llama-3.2-3B | 3B | Different architecture |
+| 6 | Qwen3-8B | 8B | 2x our size, no distillation |
+| 7 | gpt-oss-20b | 20B | OpenAI reference |
+| 8 | Qwen3.5-27B | 27B | Upper bound |
+
+All evaluated on: GSM8K (train split, 100), MATH (100), ARC (100), MMLU-Pro (100), 5 trick questions.
+
+*Running all 8 in parallel on Tinker...*
 
 ---
 
