@@ -30,7 +30,8 @@ random.seed(EVAL_SEED)
 EVAL_DIR = Path("data/eval_results")
 EVAL_DIR.mkdir(exist_ok=True)
 
-N_PER_BENCH = 100
+N_PER_BENCH = 500          # Default for reference models
+N_PER_BENCH_DISTILLED = 1000  # More for our distilled + base (tighter confidence intervals)
 SYSTEM_MSG = "You are a helpful reasoning assistant. Think through problems step by step before answering."
 
 TRICK_QUESTIONS = [
@@ -279,13 +280,17 @@ def main():
     parser.add_argument("--base-model", default="Qwen/Qwen3.5-4B")
     parser.add_argument("--benchmarks", default="gsm8k,math,arc,mmlu_pro",
                         help="Comma-separated: gsm8k,math,arc,mmlu_pro")
+    parser.add_argument("--large", action="store_true",
+                        help="Use 1000 problems per benchmark (for distilled + base)")
     args = parser.parse_args()
 
     print(f"Evaluating: {args.name}")
     print(f"  Base model: {args.base_model}")
     print(f"  Checkpoint: {args.checkpoint or 'none (base)'}")
     print(f"  Benchmarks: {args.benchmarks}")
+    n = N_PER_BENCH_DISTILLED if args.large else N_PER_BENCH
     print(f"  Eval seed: {EVAL_SEED} (training used 42)")
+    print(f"  Problems per benchmark: {n}")
 
     # Load training data for contamination check
     print(f"\n  Loading training data for contamination verification...")
@@ -316,8 +321,8 @@ def main():
     for bench_key in benchmarks:
         if bench_key in bench_fns:
             label, fn = bench_fns[bench_key]
-            print(f"\n  {label} ({N_PER_BENCH} problems)...")
-            scores = fn(sc, tokenizer, renderer, training_problems)
+            print(f"\n  {label} ({n} problems)...")
+            scores = fn(sc, tokenizer, renderer, training_problems, n=n)
             result[bench_key] = scores
             print(f"  {label}: {scores['accuracy']}% acc | {scores['format_pct']}% format | {scores['avg_thinking']} think tok")
 
