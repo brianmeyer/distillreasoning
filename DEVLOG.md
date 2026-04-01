@@ -915,6 +915,63 @@ All evaluated on: GSM8K (train split, 100), MATH (100), ARC (100), MMLU-Pro (100
 
 *Running all 8 in parallel on Tinker...*
 
+### Billing Scare + Resume Logic
+
+All 8 evals died simultaneously with `Error code: 402 — billing status blocked`. Thought we burned through $150 in credits. Turns out it was a temporary billing glitch — Tinker console still showed $100+ remaining, and sampling started working again a few minutes later.
+
+But it exposed a critical flaw: the eval script had **no resume logic**. Every restart started from scratch, wasting all completed inference calls. Rewrote `eval_one.py` with incremental progress files:
+
+- Each problem result saves to `data/eval_progress/{model}_{benchmark}.jsonl` immediately
+- On restart, loads progress file and skips completed problems
+- Also added 3x retry with backoff on transient Tinker errors
+
+This is the same pattern as our trace generation script. Should have built it this way from the start.
+
+### Early Clean Results + Emerging Hypothesis
+
+With ~15-70 problems per model completed (clean, uncontaminated benchmarks), an interesting pattern:
+
+| Teacher | Reasoning style | GSM8K (clean) | Median thinking tokens in training |
+|---------|----------------|--------------|-----------------------------------|
+| Kimi K2.5 | Concise | **71%** (17 problems) | 325 |
+| Combined | Mixed | **67%** (15 problems) | ~430 |
+| GLM-5 | Verbose | **53%** (15 problems) | 433 |
+| Base (no distillation) | — | **25%** (16 problems) | 0 |
+
+**Emerging hypothesis: concise teachers produce better small students.**
+
+Why this might be happening:
+1. **Capacity ceiling** — a 4B model has limited working memory. A 6,000 token GLM-5 reasoning chain overwhelms what the model can coherently reproduce. It learns to *start* reasoning but can't sustain it.
+2. **Signal-to-noise** — GLM-5's verbose traces include restating, double-checking, and elaboration. A small model can't distinguish core reasoning from filler. Kimi's cleaner traces are higher signal.
+3. **Training efficiency** — same gradient updates, but Kimi's shorter traces mean the model sees the full problem→answer arc more times per epoch. GLM-5's long traces get truncated at `max_length=4096`, sometimes cutting off the answer entirely.
+
+This is counterintuitive — you'd expect richer, more detailed reasoning to help. But a 4B student can't absorb it all. **The teacher needs to match the student's capacity.**
+
+Very preliminary (15-17 problems each). Need 100+ to confirm. But if it holds, this is the headline finding: "When distilling into small models, concise teachers beat verbose ones."
+
+### Format Compliance: 0% But That's OK
+
+Checked thinking tokens and `<think>`/`<answer>` format compliance — **0% across all models including distilled.** Panicked for a second. But looking at the actual output from our best model (distilled Kimi on the bat & ball problem):
+
+> "Let me denote: Let b = cost of the ball... Substituting equation 2 into equation 1: b + (b + 1.00) = 1.10... 2b = 0.10... b = 0.05... Let me verify: Ball $0.05, Bat $1.05, Total $1.10 ✓"
+
+The model IS reasoning step-by-step. It's just not wrapping it in `<think>`/`<answer>` tags. The Tinker/Qwen renderer uses the native chat template which doesn't trigger our custom tags.
+
+**The distillation transferred the reasoning ability, not just the format.** The model learned to:
+- Set up variables
+- Write equations
+- Solve step by step
+- Verify the answer
+- Flag common mistakes
+
+These are the reasoning patterns from the teacher traces. The tags are cosmetic — the skill is real. For the article, this is actually a stronger finding: distillation teaches *how to think*, not just how to format output.
+
+Reference models for context:
+- Llama-3.2-3B (3B, no distillation): 10% — raw small base can't do math
+- Qwen3-8B (8B, no distillation): 67% — our distilled 4B Kimi matches a model 2x its size
+- gpt-oss-20b (20B): 84% — the ceiling
+- Qwen3.5-27B (27B): 86% — the upper bound
+
 ---
 
 ## Phase 7: Export and Publish

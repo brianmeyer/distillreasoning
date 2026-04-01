@@ -1,16 +1,15 @@
 """Evaluate a single model on CLEAN benchmarks via Tinker sampling.
 
-All benchmarks verified to have ZERO overlap with training data.
+RESUME LOGIC: Each problem result is saved to a JSONL progress file
+as it completes. On restart, already-completed problems are skipped.
+If the process dies at problem 347/1000, restarting picks up at 348.
 
-Benchmarks:
-  Tier 1 (completely clean):
-    - GSM8K train split (100) — our training used test split only
-    - MMLU-Pro (100) — never in training data
-  Tier 2 (filtered clean):
-    - MATH test (100, seed 999) — avoids the 200 we trained on (seed 42)
-    - ARC-Challenge test (100, seed 999) — avoids the 400 we trained on (seed 42)
-  Tier 3 (qualitative):
-    - 5 trick questions — hand-written, not from any dataset
+Benchmarks (all verified zero overlap with training data):
+  - GSM8K train split — our training used test split only
+  - MATH test (seed 999) — avoids the 200 we trained on (seed 42)
+  - ARC-Challenge test (seed 999) — avoids the 400 we trained on (seed 42)
+  - MMLU-Pro — never in training data
+  - 5 trick questions — hand-written
 
 Usage:
   TINKER_API_KEY=xxx python scripts/eval_one.py <name> [--checkpoint <path>] [--base-model <model>]
@@ -24,14 +23,14 @@ from datasets import load_dataset
 import json, re, time, random, argparse
 from pathlib import Path
 
-EVAL_SEED = 999  # Different from training seed (42) to avoid overlap
-random.seed(EVAL_SEED)
-
+EVAL_SEED = 999
 EVAL_DIR = Path("data/eval_results")
 EVAL_DIR.mkdir(exist_ok=True)
+PROGRESS_DIR = Path("data/eval_progress")
+PROGRESS_DIR.mkdir(exist_ok=True)
 
-N_PER_BENCH = 500          # Default for reference models
-N_PER_BENCH_DISTILLED = 1000  # More for our distilled + base (tighter confidence intervals)
+N_PER_BENCH = 500
+N_PER_BENCH_DISTILLED = 1000
 SYSTEM_MSG = "You are a helpful reasoning assistant. Think through problems step by step before answering."
 
 TRICK_QUESTIONS = [
@@ -43,151 +42,196 @@ TRICK_QUESTIONS = [
 ]
 
 
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
 def extract_final_number(text):
     numbers = re.findall(r"-?\d+\.?\d*", text.replace(",", ""))
     return float(numbers[-1]) if numbers else None
-
 
 def extract_boxed(text):
     match = re.search(r"\\boxed\{([^}]+)\}", text)
     return match.group(1).strip() if match else None
 
-
 def has_format(text):
     return "<think>" in text and "</think>" in text
-
 
 def count_thinking_tokens(text):
     match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
     return len(match.group(1).split()) if match else 0
 
-
 def load_training_problems():
-    """Load all training problems for contamination checking."""
     problems = set()
     for f in ["data/train_glm5.jsonl", "data/train_kimi.jsonl"]:
         try:
             with open(f) as fh:
                 for line in fh:
                     ex = json.loads(line)
-                    # Use first 150 chars of user message as fingerprint
-                    user_msg = ex["messages"][1]["content"][:150]
-                    problems.add(user_msg)
+                    problems.add(ex["messages"][1]["content"][:150])
         except FileNotFoundError:
             pass
     return problems
 
-
 def verify_no_contamination(eval_problems, training_problems, bench_name):
-    """Verify zero overlap between eval and training problems."""
-    overlap = 0
-    for p in eval_problems:
-        if p[:150] in training_problems:
-            overlap += 1
+    overlap = sum(1 for p in eval_problems if p[:150] in training_problems)
     if overlap > 0:
-        print(f"  ⚠️  CONTAMINATION WARNING: {overlap}/{len(eval_problems)} {bench_name} eval problems found in training data!")
+        print(f"  ⚠️  CONTAMINATION: {overlap}/{len(eval_problems)} {bench_name} overlap!")
     else:
-        print(f"  ✅ Clean: 0/{len(eval_problems)} {bench_name} eval problems overlap with training")
+        print(f"  ✅ Clean: 0/{len(eval_problems)} {bench_name} overlap with training")
     return overlap
 
-
-def sample(sc, tokenizer, renderer, problem, max_tokens=1024):
-    messages = [
-        {"role": "system", "content": SYSTEM_MSG},
-        {"role": "user", "content": problem},
-    ]
+def sample_with_retry(sc, tokenizer, renderer, problem, max_tokens=1024, max_retries=3):
+    """Sample with retry on transient errors."""
+    messages = [{"role": "system", "content": SYSTEM_MSG}, {"role": "user", "content": problem}]
     prompt = renderer.build_generation_prompt(messages)
     stop = renderer.get_stop_sequences()
     params = types.SamplingParams(max_tokens=max_tokens, temperature=0.6, top_p=0.95, stop=stop)
-    start = time.time()
-    result = sc.sample(prompt=prompt, sampling_params=params, num_samples=1).result()
-    elapsed = time.time() - start
-    response = tokenizer.decode(result.sequences[0].tokens) if result.sequences else ""
-    return response, elapsed
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            start = time.time()
+            result = sc.sample(prompt=prompt, sampling_params=params, num_samples=1).result()
+            elapsed = time.time() - start
+            response = tokenizer.decode(result.sequences[0].tokens) if result.sequences else ""
+            return response, elapsed
+        except Exception as e:
+            if attempt < max_retries:
+                wait = 10 * attempt
+                print(f"      Retry {attempt}/{max_retries}: {e}. Waiting {wait}s...")
+                time.sleep(wait)
+            else:
+                print(f"      FAILED after {max_retries} retries: {e}")
+                return "", 0.0
 
 
-# ── Benchmark Functions ────────────────────────────────────────────────────────
+# ── Resume Logic ───────────────────────────────────────────────────────────────
 
-def eval_gsm8k(sc, tok, renderer, training_problems, n=N_PER_BENCH):
-    """GSM8K from TRAIN split (our training used TEST split — zero contamination)."""
+def load_progress(model_name, bench_name):
+    """Load completed problem indices from progress file."""
+    progress_file = PROGRESS_DIR / f"{model_name}_{bench_name}.jsonl"
+    completed = {}
+    if progress_file.exists():
+        with open(progress_file) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    completed[entry["idx"]] = entry
+                except (json.JSONDecodeError, KeyError):
+                    pass
+    return completed, progress_file
+
+def save_progress(progress_file, entry):
+    """Append one problem result to progress file."""
+    with open(progress_file, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+        f.flush()
+
+def summarize_progress(completed):
+    """Compute summary stats from completed results."""
+    n = len(completed)
+    if n == 0:
+        return {"accuracy": 0, "format_pct": 0, "avg_thinking": 0, "correct": 0, "n": 0}
+    correct = sum(1 for e in completed.values() if e.get("correct"))
+    format_ok = sum(1 for e in completed.values() if e.get("format"))
+    think = sum(e.get("thinking_tokens", 0) for e in completed.values())
+    return {
+        "accuracy": round(100 * correct / n, 1),
+        "format_pct": round(100 * format_ok / n, 1),
+        "avg_thinking": round(think / n),
+        "correct": correct,
+        "n": n,
+    }
+
+
+# ── Benchmark Functions (with resume) ──────────────────────────────────────────
+
+def eval_gsm8k(sc, tok, renderer, training_problems, model_name, n=N_PER_BENCH):
     ds = load_dataset("openai/gsm8k", "main", split="train")
     rng = random.Random(EVAL_SEED)
     indices = rng.sample(range(len(ds)), min(n, len(ds)))
+    verify_no_contamination([ds[i]["question"] for i in indices], training_problems, "GSM8K-train")
 
-    # Verify clean
-    eval_texts = [ds[i]["question"] for i in indices]
-    verify_no_contamination(eval_texts, training_problems, "GSM8K-train")
+    completed, pfile = load_progress(model_name, "gsm8k")
+    print(f"    Resuming from {len(completed)}/{n} completed")
 
-    correct, format_ok, think_tokens = 0, 0, []
     for idx, i in enumerate(indices):
+        if idx in completed:
+            continue
         row = ds[i]
-        response, _ = sample(sc, tok, renderer, row["question"])
+        response, elapsed = sample_with_retry(sc, tok, renderer, row["question"])
         expected = row["answer"].split("####")[-1].strip()
-        if has_format(response): format_ok += 1
-        think_tokens.append(count_thinking_tokens(response))
+        fmt = has_format(response)
+        tt = count_thinking_tokens(response)
+        got_right = False
         try:
             exp_num = float(expected.replace(",", ""))
             mod_num = extract_final_number(response)
             if mod_num is not None and abs(mod_num - exp_num) < 0.01:
-                correct += 1
+                got_right = True
         except ValueError:
             pass
-        if (idx + 1) % 10 == 0:
-            print(f"    GSM8K: {idx+1}/{n}: {correct}/{idx+1} correct")
+        save_progress(pfile, {"idx": idx, "correct": got_right, "format": fmt, "thinking_tokens": tt})
+        completed[idx] = {"idx": idx, "correct": got_right, "format": fmt, "thinking_tokens": tt}
+        done = len(completed)
+        if done % 10 == 0:
+            c = sum(1 for e in completed.values() if e["correct"])
+            print(f"    GSM8K: {done}/{n}: {c}/{done} correct")
 
-    return {"benchmark": "GSM8K (train split)", "accuracy": round(100 * correct / n, 1),
-            "format_pct": round(100 * format_ok / n, 1),
-            "avg_thinking": round(sum(think_tokens) / n), "correct": correct, "n": n}
+    result = summarize_progress(completed)
+    result["benchmark"] = "GSM8K (train split)"
+    return result
 
 
-def eval_math(sc, tok, renderer, training_problems, n=N_PER_BENCH):
-    """MATH test with seed 999 (training used seed 42 — different 100 problems)."""
+def eval_math(sc, tok, renderer, training_problems, model_name, n=N_PER_BENCH):
     ds = load_dataset("SuperSecureHuman/competition_math_hf_dataset", split="test")
     rng = random.Random(EVAL_SEED)
     indices = rng.sample(range(len(ds)), min(n, len(ds)))
+    verify_no_contamination([ds[i]["problem"] for i in indices], training_problems, "MATH")
 
-    eval_texts = [ds[i]["problem"] for i in indices]
-    verify_no_contamination(eval_texts, training_problems, "MATH")
+    completed, pfile = load_progress(model_name, "math")
+    print(f"    Resuming from {len(completed)}/{n} completed")
 
-    correct, format_ok, think_tokens = 0, 0, []
     for idx, i in enumerate(indices):
+        if idx in completed:
+            continue
         row = ds[i]
-        response, _ = sample(sc, tok, renderer, row["problem"])
+        response, _ = sample_with_retry(sc, tok, renderer, row["problem"])
+        fmt = has_format(response)
+        tt = count_thinking_tokens(response)
         expected_boxed = extract_boxed(row.get("solution", ""))
-        if has_format(response): format_ok += 1
-        think_tokens.append(count_thinking_tokens(response))
         model_boxed = extract_boxed(response)
-        if expected_boxed and model_boxed and expected_boxed.strip() == model_boxed.strip():
-            correct += 1
-        if (idx + 1) % 10 == 0:
-            print(f"    MATH: {idx+1}/{n}: {correct}/{idx+1} correct")
+        got_right = bool(expected_boxed and model_boxed and expected_boxed.strip() == model_boxed.strip())
+        save_progress(pfile, {"idx": idx, "correct": got_right, "format": fmt, "thinking_tokens": tt})
+        completed[idx] = {"idx": idx, "correct": got_right, "format": fmt, "thinking_tokens": tt}
+        done = len(completed)
+        if done % 10 == 0:
+            c = sum(1 for e in completed.values() if e["correct"])
+            print(f"    MATH: {done}/{n}: {c}/{done} correct")
 
-    return {"benchmark": "MATH-500 (clean seed)", "accuracy": round(100 * correct / n, 1),
-            "format_pct": round(100 * format_ok / n, 1),
-            "avg_thinking": round(sum(think_tokens) / n), "correct": correct, "n": n}
+    result = summarize_progress(completed)
+    result["benchmark"] = "MATH-500 (clean seed)"
+    return result
 
 
-def eval_arc(sc, tok, renderer, training_problems, n=N_PER_BENCH):
-    """ARC-Challenge test with seed 999 (training used seed 42)."""
+def eval_arc(sc, tok, renderer, training_problems, model_name, n=N_PER_BENCH):
     ds = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
     rng = random.Random(EVAL_SEED)
     indices = rng.sample(range(len(ds)), min(n, len(ds)))
+    verify_no_contamination([ds[i]["question"] for i in indices], training_problems, "ARC")
 
-    eval_texts = [ds[i]["question"] for i in indices]
-    verify_no_contamination(eval_texts, training_problems, "ARC")
+    completed, pfile = load_progress(model_name, "arc")
+    print(f"    Resuming from {len(completed)}/{n} completed")
 
-    correct, format_ok, think_tokens = 0, 0, []
     for idx, i in enumerate(indices):
+        if idx in completed:
+            continue
         row = ds[i]
         choices = row["choices"]
         choice_text = "\n".join(f"{l}. {t}" for l, t in zip(choices["label"], choices["text"]))
         problem = f"{row['question']}\n\nChoices:\n{choice_text}"
         expected = row["answerKey"]
-
-        response, _ = sample(sc, tok, renderer, problem)
-        if has_format(response): format_ok += 1
-        think_tokens.append(count_thinking_tokens(response))
-
+        response, _ = sample_with_retry(sc, tok, renderer, problem)
+        fmt = has_format(response)
+        tt = count_thinking_tokens(response)
         resp_upper = response.upper()
         found = False
         for pat in [rf"answer\s+is\s+\(?{expected}\)?", rf"\({expected}\)", rf"\b{expected}\b\s*[\.\)]"]:
@@ -198,37 +242,39 @@ def eval_arc(sc, tok, renderer, training_problems, n=N_PER_BENCH):
             last_caps = re.findall(r"\b([A-E])\b", resp_upper)
             if last_caps and last_caps[-1] == expected:
                 found = True
-        if found:
-            correct += 1
-        if (idx + 1) % 10 == 0:
-            print(f"    ARC: {idx+1}/{n}: {correct}/{idx+1} correct")
+        save_progress(pfile, {"idx": idx, "correct": found, "format": fmt, "thinking_tokens": tt})
+        completed[idx] = {"idx": idx, "correct": found, "format": fmt, "thinking_tokens": tt}
+        done = len(completed)
+        if done % 10 == 0:
+            c = sum(1 for e in completed.values() if e["correct"])
+            print(f"    ARC: {done}/{n}: {c}/{done} correct")
 
-    return {"benchmark": "ARC-Challenge (clean seed)", "accuracy": round(100 * correct / n, 1),
-            "format_pct": round(100 * format_ok / n, 1),
-            "avg_thinking": round(sum(think_tokens) / n), "correct": correct, "n": n}
+    result = summarize_progress(completed)
+    result["benchmark"] = "ARC-Challenge (clean seed)"
+    return result
 
 
-def eval_mmlu_pro(sc, tok, renderer, training_problems, n=N_PER_BENCH):
-    """MMLU-Pro — completely clean, never in training data."""
+def eval_mmlu_pro(sc, tok, renderer, training_problems, model_name, n=N_PER_BENCH):
     ds = load_dataset("TIGER-Lab/MMLU-Pro", split="test")
     rng = random.Random(EVAL_SEED)
     indices = rng.sample(range(len(ds)), min(n, len(ds)))
-
-    correct, format_ok, think_tokens = 0, 0, []
     print(f"  ✅ Clean: MMLU-Pro was never in training data")
 
+    completed, pfile = load_progress(model_name, "mmlu_pro")
+    print(f"    Resuming from {len(completed)}/{n} completed")
+
     for idx, i in enumerate(indices):
+        if idx in completed:
+            continue
         row = ds[i]
         options = row["options"]
         letters = [chr(65 + j) for j in range(len(options))]
         choices = "\n".join(f"{l}. {o}" for l, o in zip(letters, options))
         problem = f"{row['question']}\n\nChoices:\n{choices}"
         expected = row["answer"]
-
-        response, _ = sample(sc, tok, renderer, problem)
-        if has_format(response): format_ok += 1
-        think_tokens.append(count_thinking_tokens(response))
-
+        response, _ = sample_with_retry(sc, tok, renderer, problem)
+        fmt = has_format(response)
+        tt = count_thinking_tokens(response)
         resp_upper = response.upper()
         found = False
         for pat in [rf"answer\s+is\s+\(?{expected}\)?", rf"\({expected}\)", rf"\b{expected}\b\s*[\.\)]"]:
@@ -239,33 +285,38 @@ def eval_mmlu_pro(sc, tok, renderer, training_problems, n=N_PER_BENCH):
             last_caps = re.findall(r"\b([A-Z])\b", resp_upper)
             if last_caps and last_caps[-1] == expected:
                 found = True
-        if found:
-            correct += 1
-        if (idx + 1) % 10 == 0:
-            print(f"    MMLU-Pro: {idx+1}/{n}: {correct}/{idx+1} correct")
+        save_progress(pfile, {"idx": idx, "correct": found, "format": fmt, "thinking_tokens": tt})
+        completed[idx] = {"idx": idx, "correct": found, "format": fmt, "thinking_tokens": tt}
+        done = len(completed)
+        if done % 10 == 0:
+            c = sum(1 for e in completed.values() if e["correct"])
+            print(f"    MMLU-Pro: {done}/{n}: {c}/{done} correct")
 
-    return {"benchmark": "MMLU-Pro (fully clean)", "accuracy": round(100 * correct / n, 1),
-            "format_pct": round(100 * format_ok / n, 1),
-            "avg_thinking": round(sum(think_tokens) / n), "correct": correct, "n": n}
+    result = summarize_progress(completed)
+    result["benchmark"] = "MMLU-Pro (fully clean)"
+    return result
 
 
-def eval_tricks(sc, tok, renderer):
-    """Hand-written trick questions — not from any dataset."""
+def eval_tricks(sc, tok, renderer, model_name):
+    completed, pfile = load_progress(model_name, "tricks")
     results = []
-    for q, expected in TRICK_QUESTIONS:
-        response, elapsed = sample(sc, tok, renderer, q)
+    for idx, (q, expected) in enumerate(TRICK_QUESTIONS):
+        if idx in completed:
+            results.append(completed[idx])
+            continue
+        response, elapsed = sample_with_retry(sc, tok, renderer, q)
         model_num = extract_final_number(response)
         try:
             exp_num = float(expected)
             got_right = model_num is not None and abs(model_num - exp_num) < 0.01
         except ValueError:
             got_right = expected.lower() in response.lower()
-
-        results.append({
-            "problem": q, "expected": expected, "correct": got_right,
-            "response": response[:1500], "has_format": has_format(response),
-            "thinking_tokens": count_thinking_tokens(response),
-        })
+        entry = {"idx": idx, "problem": q, "expected": expected, "correct": got_right,
+                 "response": response[:1500], "has_format": has_format(response),
+                 "thinking_tokens": count_thinking_tokens(response)}
+        save_progress(pfile, entry)
+        completed[idx] = entry
+        results.append(entry)
     correct = sum(1 for r in results if r["correct"])
     print(f"    Tricks: {correct}/5 correct")
     return results
@@ -278,24 +329,21 @@ def main():
     parser.add_argument("name")
     parser.add_argument("--checkpoint")
     parser.add_argument("--base-model", default="Qwen/Qwen3.5-4B")
-    parser.add_argument("--benchmarks", default="gsm8k,math,arc,mmlu_pro",
-                        help="Comma-separated: gsm8k,math,arc,mmlu_pro")
-    parser.add_argument("--large", action="store_true",
-                        help="Use 1000 problems per benchmark (for distilled + base)")
+    parser.add_argument("--benchmarks", default="gsm8k,math,arc,mmlu_pro")
+    parser.add_argument("--large", action="store_true")
     args = parser.parse_args()
 
+    n = N_PER_BENCH_DISTILLED if args.large else N_PER_BENCH
     print(f"Evaluating: {args.name}")
     print(f"  Base model: {args.base_model}")
     print(f"  Checkpoint: {args.checkpoint or 'none (base)'}")
     print(f"  Benchmarks: {args.benchmarks}")
-    n = N_PER_BENCH_DISTILLED if args.large else N_PER_BENCH
-    print(f"  Eval seed: {EVAL_SEED} (training used 42)")
     print(f"  Problems per benchmark: {n}")
+    print(f"  Eval seed: {EVAL_SEED}")
+    print(f"  Progress dir: {PROGRESS_DIR}")
 
-    # Load training data for contamination check
-    print(f"\n  Loading training data for contamination verification...")
     training_problems = load_training_problems()
-    print(f"  {len(training_problems)} unique training problems loaded")
+    print(f"  {len(training_problems)} training problems loaded for contamination check")
 
     service = tinker.ServiceClient()
     tokenizer = tokenizer_utils.get_tokenizer(args.base_model)
@@ -307,8 +355,7 @@ def main():
     else:
         sc = service.create_sampling_client(base_model=args.base_model)
 
-    result = {"model": args.name, "base_model": args.base_model,
-              "checkpoint": args.checkpoint, "eval_seed": EVAL_SEED}
+    result = {"model": args.name, "base_model": args.base_model, "checkpoint": args.checkpoint, "eval_seed": EVAL_SEED}
 
     bench_fns = {
         "gsm8k": ("GSM8K", eval_gsm8k),
@@ -317,27 +364,25 @@ def main():
         "mmlu_pro": ("MMLU-Pro", eval_mmlu_pro),
     }
 
-    benchmarks = args.benchmarks.split(",")
-    for bench_key in benchmarks:
+    for bench_key in args.benchmarks.split(","):
         if bench_key in bench_fns:
             label, fn = bench_fns[bench_key]
             print(f"\n  {label} ({n} problems)...")
-            scores = fn(sc, tokenizer, renderer, training_problems, n=n)
+            scores = fn(sc, tokenizer, renderer, training_problems, args.name, n=n)
             result[bench_key] = scores
             print(f"  {label}: {scores['accuracy']}% acc | {scores['format_pct']}% format | {scores['avg_thinking']} think tok")
 
     print(f"\n  Trick questions (5)...")
-    result["trick_questions"] = eval_tricks(sc, tokenizer, renderer)
+    result["trick_questions"] = eval_tricks(sc, tokenizer, renderer, args.name)
 
     out_file = EVAL_DIR / f"{args.name}.json"
     with open(out_file, "w") as f:
         json.dump(result, f, indent=2)
     print(f"\n  ✅ Saved: {out_file}")
 
-    # Summary
     print(f"\n  {'='*50}")
     print(f"  SUMMARY: {args.name}")
-    for bench_key in benchmarks:
+    for bench_key in args.benchmarks.split(","):
         if bench_key in result:
             print(f"    {bench_key}: {result[bench_key]['accuracy']}%")
     tricks_correct = sum(1 for t in result["trick_questions"] if t["correct"])
