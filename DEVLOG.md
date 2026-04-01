@@ -814,7 +814,38 @@ Pushed all 4 datasets to HuggingFace. Merged test split back into train since we
 
 ## Phase 5: SFT Training
 
-*Pending*
+### Tinker Pipeline Verified
+
+Got the Tinker training pipeline working using the cookbook's own functions:
+- `conversation_to_datum()` — converts our messages format to Tinker Datum objects with proper token shifting and weight masking
+- `compute_mean_nll()` — computes loss from logprobs and weights
+- `TrainOnWhat.LAST_ASSISTANT_MESSAGE` — only trains on the assistant's reasoning turn (not system/user prompts)
+- LoRA rank 32 on all attention + MLP layers
+
+**Debugging the API:** Took a few tries to get the datum construction right. The cookbook wraps a lot of complexity:
+1. First attempt: tried to access `model_input.tokens` — doesn't exist, need `to_ints()`
+2. Second attempt: TensorData types from Tinker aren't numpy arrays — can't use `np.dot` directly
+3. Third attempt: used the wrong import path for `compute_mean_nll`
+4. Final: used the cookbook's built-in `conversation_to_datum` and `compute_mean_nll` — works correctly
+
+**Lesson:** When a library has high-level helper functions, use them instead of reimplementing the low-level details. The cookbook exists for a reason.
+
+**Capacity issue:** Hit "Tinker backend is running short on capacity" on the test run. GPU availability fluctuates — the request queues and executes when a slot opens. Normal for credit-based GPU platforms.
+
+### Training Plan (6 runs)
+
+| Run | Student | Teacher | Dataset |
+|-----|---------|---------|---------|
+| 1 | Qwen3.5-4B | GLM-5 | train_glm5.jsonl (1,572) |
+| 2 | Qwen3.5-4B | Kimi | train_kimi.jsonl (1,624) |
+| 3 | Qwen3.5-4B | Combined | train_combined.jsonl (3,196) |
+| 4 | Qwen3.5-2B | GLM-5 | train_glm5.jsonl (1,572) |
+| 5 | Qwen3.5-2B | Kimi | train_kimi.jsonl (1,624) |
+| 6 | Qwen3.5-2B | Combined | train_combined.jsonl (3,196) |
+
+Config: LoRA rank 32, LR from `get_lr()`, AdamW (β1=0.9, β2=0.95), linear decay, batch ~128 tokens.
+
+*Waiting for Tinker capacity, then running all 6.*
 
 ---
 
