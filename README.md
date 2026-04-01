@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <em>2,083 problems. Two teachers (GLM-5, Kimi K2.5). Two students (4B, 2B). SFT then GRPO. 14 eval points. One controlled experiment.</em>
+  <em>2,083 problems. Two teachers (GLM-5, Kimi K2.5). Qwen3.5-4B as student. SFT then GRPO. One controlled experiment.</em>
 </p>
 
 <p align="center">
@@ -32,27 +32,19 @@ Every step — including the mistakes — is in the [Dev Log](DEVLOG.md).
 
 ## Results
 
-### Qwen3.5-4B
-
 | Model | Stage | GSM8K Accuracy | Format | Avg thinking tokens |
 |-------|-------|---------------|--------|---------------------|
-| Base 4B | — | TBD | 0% | 0 |
+| Base Qwen3.5-4B | — | TBD | 0% | 0 |
 | 4B + GLM-5 | SFT | TBD | TBD | TBD |
 | 4B + Kimi | SFT | TBD | TBD | TBD |
 | 4B + Combined | SFT | TBD | TBD | TBD |
 | 4B + best | SFT → GRPO | TBD | TBD | TBD |
 
-### Qwen3.5-2B
+| 4B + GLM-5 | SFT → GRPO | TBD | TBD | TBD |
+| 4B + Kimi | SFT → GRPO | TBD | TBD | TBD |
+| 4B + Combined | SFT → GRPO | TBD | TBD | TBD |
 
-| Model | Stage | GSM8K Accuracy | Format | Avg thinking tokens |
-|-------|-------|---------------|--------|---------------------|
-| Base 2B | — | TBD | 0% | 0 |
-| 2B + GLM-5 | SFT | TBD | TBD | TBD |
-| 2B + Kimi | SFT | TBD | TBD | TBD |
-| 2B + Combined | SFT | TBD | TBD | TBD |
-| 2B + best | SFT → GRPO | TBD | TBD | TBD |
-
-*14 eval points total. GRPO applied to top SFT performers. Results updated after runs.*
+*8 eval points: 1 baseline + 3 SFT + 3 SFT→GRPO + 1 baseline. Results updated after runs.*
 
 ## How it works
 
@@ -62,10 +54,10 @@ Every step — including the mistakes — is in the [Dev Log](DEVLOG.md).
 | 2. Generate | Both teachers solve all problems with full `<think>` traces via Ollama cloud |
 | 3. Filter | Keep correct answers with deep reasoning (>50 thinking tokens) |
 | 4. Format | Chat format with `<think>`/`<answer>` tags, 80/10/10 split |
-| 5. SFT | LoRA fine-tune 6 models: 2 students (4B, 2B) × 3 teacher configs (GLM-5, Kimi, combined) |
-| 6. Benchmark | Eval all 6 SFT models on held-out GSM8K — pick top 2-3 |
-| 7. GRPO | Reinforcement learning on top SFT models — reward correct answers |
-| 8. Final eval | 14-point comparison: base → SFT → GRPO across all configs |
+| 5. SFT | LoRA fine-tune 3 models: Qwen3.5-4B × 3 teacher configs (GLM-5, Kimi, combined) |
+| 6. Benchmark | Eval all 3 SFT models + baseline on GSM8K, MATH, ARC |
+| 7. GRPO | Reinforcement learning on all 3 SFT models — reward correct answers |
+| 8. Final eval | 7-point comparison: base → SFT → GRPO for each teacher config |
 | 9. Export | GGUF for local inference via Ollama/llama.cpp |
 
 ## Why GLM-5 as teacher

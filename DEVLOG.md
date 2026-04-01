@@ -832,18 +832,24 @@ Got the Tinker training pipeline working using the cookbook's own functions:
 
 **Capacity issue:** Hit "Tinker backend is running short on capacity" on the test run. GPU availability fluctuates — the request queues and executes when a slot opens. Normal for credit-based GPU platforms.
 
-### Training Plan (6 runs)
+### Revised Plan: 3 SFT + 3 GRPO on 4B Only
 
-| Run | Student | Teacher | Dataset |
-|-----|---------|---------|---------|
-| 1 | Qwen3.5-4B | GLM-5 | train_glm5.jsonl (1,572) |
-| 2 | Qwen3.5-4B | Kimi | train_kimi.jsonl (1,624) |
-| 3 | Qwen3.5-4B | Combined | train_combined.jsonl (3,196) |
-| 4 | Qwen3.5-2B | GLM-5 | train_glm5.jsonl (1,572) |
-| 5 | Qwen3.5-2B | Kimi | train_kimi.jsonl (1,624) |
-| 6 | Qwen3.5-2B | Combined | train_combined.jsonl (3,196) |
+Originally planned 6 SFT runs (2 students × 3 teachers). Discovered Qwen3.5-2B isn't supported on Tinker — only 4B and up. Rather than shoehorning a different small model in, simplified the plan: **3 SFT runs on Qwen3.5-4B, then GRPO on all 3.**
 
-Config: LoRA rank 32, LR from `get_lr()`, AdamW (β1=0.9, β2=0.95), linear decay, batch ~128 tokens.
+The 2B experiment can happen later on Colab Pro (Unsloth supports any HuggingFace model).
+
+| Run | Student | Teacher | Dataset | Stage |
+|-----|---------|---------|---------|-------|
+| 1 | Qwen3.5-4B | GLM-5 | train_glm5.jsonl (1,572) | SFT |
+| 2 | Qwen3.5-4B | Kimi | train_kimi.jsonl (1,624) | SFT |
+| 3 | Qwen3.5-4B | Combined | train_combined.jsonl (3,196) | SFT |
+| 4 | Qwen3.5-4B | GLM-5 | (RL on run 1) | GRPO |
+| 5 | Qwen3.5-4B | Kimi | (RL on run 2) | GRPO |
+| 6 | Qwen3.5-4B | Combined | (RL on run 3) | GRPO |
+
+Config: LoRA rank 32, LR from `get_lr()`, AdamW (β1=0.9, β2=0.95), linear decay, batch 8.
+
+**7 eval points:** 1 baseline + 3 after SFT + 3 after GRPO.
 
 ### Tinker Test Run — Success!
 
