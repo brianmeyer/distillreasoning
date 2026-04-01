@@ -695,15 +695,107 @@ Both generators past 70%, running side by side. Everything downstream is built, 
 
 ---
 
-## Phase 2: Filtering
+### Trace Generation Complete!
 
-*Pending — will run when generation finishes*
+Both generators finished. Final stats:
+
+| Teacher | Traces | Time |
+|---------|--------|------|
+| GLM-5 | 2,083 | ~7 hours |
+| Kimi K2.5 | 2,083 | ~7 hours |
+| **Total** | **4,166** | (ran concurrently) |
+
+Zero failures on either generator. The parallel 4+4 worker setup with 0.5s stagger worked with no rate limiting from Ollama cloud.
+
+### Evaluation Benchmarks — Following DeepSeek-R1's Approach
+
+Before running the pipeline, rewrote the evaluation script. Our original eval was just GSM8K accuracy + format compliance — too narrow. Looked at how [DeepSeek evaluated their R1-Distill models](https://arxiv.org/html/2501.12948v1):
+
+- **5 benchmarks** (AIME, MATH-500, GPQA Diamond, LiveCodeBench, Codeforces)
+- **Zero-shot** (few-shot actually hurts reasoning models)
+- **Pass@1** with temperature 0.6, top-p 0.95
+- **Consensus@64** (majority vote) for harder benchmarks
+
+Our eval now covers **3 benchmarks + qualitative comparison:**
+
+| Benchmark | N | What it tests | Metric |
+|-----------|---|---------------|--------|
+| GSM8K | 100 | Grade school math | Numeric answer match |
+| MATH | 100 | Competition math | Boxed answer match |
+| ARC-Challenge | 100 | Science reasoning | Letter answer match |
+| Trick questions | 5 | Reasoning quality | Qualitative side-by-side |
+
+Each benchmark reports: accuracy, format compliance, avg thinking tokens, avg response time.
+
+The 5 trick questions (bat & ball, sheep, widgets, etc.) are for the devlog/article — same problems, all models, side by side. These are the ones where reasoning matters most because the intuitive answer is wrong.
 
 ---
 
-## Phase 3: Formatting
+## Phase 2: Filtering — Final Results
 
-*Pending*
+Both trace sets complete. Ran `scripts/filter_traces.py` through all 8 quality gates.
+
+### GLM-5: 1,744/2,083 kept (83.7%)
+
+| Source | Total | Kept | Keep % | Main drop reasons |
+|--------|-------|------|--------|-------------------|
+| gsm8k | 1,319 | 1,139 | 86.4% | 105 wrong answer, 59 too long |
+| math | 200 | 107 | 53.5% | 55 wrong answer, 20 too long, 13 incoherent |
+| arc | 400 | 346 | 86.5% | 44 no reasoning structure |
+| humaneval | 164 | 152 | 92.7% | 11 too long |
+
+### Kimi K2.5: 1,802/2,083 kept (86.5%)
+
+| Source | Total | Kept | Keep % | Main drop reasons |
+|--------|-------|------|--------|-------------------|
+| gsm8k | 1,319 | 1,118 | 84.8% | 189 wrong answer |
+| math | 200 | 128 | 64.0% | 46 wrong answer, 16 incoherent |
+| arc | 400 | 395 | 98.8% | 3 too long |
+| humaneval | 164 | 161 | 98.2% | 3 too long |
+
+### Teacher Comparison
+
+| Metric | GLM-5 | Kimi K2.5 |
+|--------|-------|-----------|
+| **Overall keep rate** | 83.7% | 86.5% |
+| **Wrong answers dropped** | 160 (7.7%) | 235 (11.3%) |
+| **Too long dropped** | 98 (4.7%) | 21 (1.0%) |
+| **Median thinking tokens** | 433 | 325 |
+| **Mean thinking tokens** | 676 | 538 |
+
+**Key observations:**
+1. **Kimi gets more answers wrong** (11.3% vs 7.7%) — GLM-5 is the more accurate reasoner, consistent with its AIME benchmark lead
+2. **GLM-5 is way more verbose** — 98 traces exceeded 4,000 tokens vs Kimi's 21. GLM-5 over-explains.
+3. **Kimi crushes ARC** (98.8% keep) — concise reasoning works really well for multiple choice
+4. **MATH is hard for both** but Kimi keeps more (64% vs 53.5%) — surprising, possibly because shorter traces are less likely to go off the rails
+
+---
+
+## Phase 3: Formatting — Final Results
+
+Ran `scripts/format_for_sft.py` with stratified splitting on both.
+
+### GLM-5 Dataset
+
+| Split | gsm8k | math | arc | humaneval | Total |
+|-------|-------|------|-----|-----------|-------|
+| Train | 911 | 85 | 276 | 121 | 1,393 |
+| Validation | 113 | 10 | 34 | 15 | 172 |
+| Test | 115 | 12 | 36 | 16 | 179 |
+
+Token stats: median 824 total / 577 thinking, mean 1,139 total / 902 thinking.
+
+### Kimi Dataset
+
+| Split | gsm8k | math | arc | humaneval | Total |
+|-------|-------|------|-----|-----------|-------|
+| Train | 894 | 102 | 316 | 128 | 1,440 |
+| Validation | 111 | 12 | 39 | 16 | 178 |
+| Test | 113 | 14 | 40 | 17 | 184 |
+
+Token stats: median 693 total / 433 thinking, mean 978 total / 717 thinking.
+
+All splits stratified by source — every domain represented proportionally in train/val/test
 
 ---
 
