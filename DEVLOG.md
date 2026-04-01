@@ -801,7 +801,14 @@ All splits stratified by source — every domain represented proportionally in t
 
 ## Phase 4: Dataset Upload
 
-*Pending*
+Pushed all 4 datasets to HuggingFace. Merged test split back into train since we're evaluating on external benchmarks (GSM8K, MATH, ARC) — the held-out test set was redundant. Kept validation for training loss monitoring.
+
+| Dataset | Train | Val | Link |
+|---------|-------|-----|------|
+| GLM-5 raw | 1,744 | — | [glm5-reasoning-traces](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces) |
+| GLM-5 SFT | 1,572 | 172 | [glm5-reasoning-traces-sft](https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces-sft) |
+| Kimi raw | 1,802 | — | [kimi-reasoning-traces](https://huggingface.co/datasets/bmeyer2025/kimi-reasoning-traces) |
+| Kimi SFT | 1,624 | 178 | [kimi-reasoning-traces-sft](https://huggingface.co/datasets/bmeyer2025/kimi-reasoning-traces-sft) |
 
 ---
 
