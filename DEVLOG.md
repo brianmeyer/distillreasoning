@@ -845,7 +845,19 @@ Got the Tinker training pipeline working using the cookbook's own functions:
 
 Config: LoRA rank 32, LR from `get_lr()`, AdamW (β1=0.9, β2=0.95), linear decay, batch ~128 tokens.
 
-*Waiting for Tinker capacity, then running all 6.*
+### Tinker Test Run — Success!
+
+Capacity freed up and the test completed:
+
+```
+Step 1: loss=0.7519 (116.8s)
+Step 2: loss=0.5947 (11.9s)
+Step 3: loss=0.4150 (17.3s)
+```
+
+Loss dropping from 0.75 → 0.41 in 3 steps on 4 examples. The pipeline is correct. First step was slow (116s) due to model loading, subsequent steps fast (~12-17s).
+
+*Ready to run all 6 SFT training runs.*
 
 ---
 
