@@ -14,8 +14,8 @@
 
 <p align="center">
   <a href="DEVLOG.md">Dev Log</a> |
-  <a href="https://huggingface.co/bmeyer2025/qwen3.5-4b-glm5-reasoning-distilled">Model</a> |
-  <a href="https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces">Dataset</a>
+  <a href="https://huggingface.co/datasets/bmeyer2025/glm5-reasoning-traces">GLM-5 Dataset</a> |
+  <a href="https://huggingface.co/datasets/bmeyer2025/kimi-reasoning-traces">Kimi Dataset</a>
 </p>
 
 ---
@@ -30,22 +30,41 @@ I fed 2,083 reasoning problems to both models via Ollama cloud, captured every t
 
 Every step — including the mistakes — is in the [Dev Log](DEVLOG.md).
 
+## The experiment
+
+A key question in distillation is: does the teacher model matter? To test this, we picked two frontier reasoning models with very different styles:
+
+| | GLM-5 | Kimi K2.5 |
+|--|-------|-----------|
+| **Parameters** | 744B (40B active) | ~1T (32B active) |
+| **AIME 2026** | 92.7% | Strong |
+| **Reasoning style** | Verbose, thorough (median 433 tokens) | Concise, elegant (median 325 tokens) |
+| **Filter keep rate** | 83.7% (more accurate, but rambles) | 86.5% (more errors, but cleaner traces) |
+| **License** | MIT | MIT-compatible |
+| **Ollama tag** | `glm-5:cloud` | `kimi-k2.5:cloud` |
+
+Both are free via [Ollama cloud tags](https://ollama.com/search?c=thinking) — the model runs on Ollama's servers, you just send API calls. MIT licensed means outputs can legally be used for training ([we verified this](DEVLOG.md#100-pm--licensing-check-can-we-use-glm-5-outputs-for-training)).
+
+**The setup:** Same 2,083 problems → both teachers → filter → train separate Qwen3.5-4B students → compare. Plus a third student trained on both trace sets combined. This tells us whether verbose reasoning (GLM-5) or concise reasoning (Kimi) transfers better to a small 4B model.
+
 ## Benchmarks
 
 Evaluated on 4 clean benchmarks (zero overlap with training data) + 5 hand-written trick questions. All benchmarks verified for contamination before scoring.
 
 ### SFT Results (after supervised fine-tuning, before GRPO)
 
-| Model | Params | GSM8K | MATH | ARC | MMLU-Pro | Tricks |
-|-------|--------|-------|------|-----|----------|--------|
-| Llama-3.2-3B | 3B | 9.0% | 0.0% | 33.4% | 19.0% | 1/5 |
-| Base Qwen3.5-4B | 4B | 37.3% | — | — | — | — |
-| **Distilled (GLM-5)** | **4B** | **61.3%** | — | — | — | — |
-| **Distilled (Combined)** | **4B** | **71.3%** | — | — | — | — |
-| **Distilled (Kimi)** | **4B** | **72.6%** | — | — | — | — |
-| Qwen3-8B | 8B | 63.0% | — | — | — | — |
-| gpt-oss-20b | 20B | 84.6% | 28.8% | 98.2% | 77.2% | 4/5 |
-| Qwen3.5-27B | 27B | 39.8% | — | — | — | — |
+| Model | Params | Type | GSM8K | MATH | ARC | MMLU-Pro | Tricks |
+|-------|--------|------|-------|------|-----|----------|--------|
+| Llama-3.2-3B | 3B | Base | 9.0% | 0.0% | 33.4% | 19.0% | 1/5 |
+| Base Qwen3.5-4B | 4B | Base | 37.3% | — | — | — | — |
+| **Distilled (GLM-5)** | **4B** | **SFT** | **61.3%** | — | — | — | — |
+| **Distilled (Combined)** | **4B** | **SFT** | **71.3%** | — | — | — | — |
+| **Distilled (Kimi)** | **4B** | **SFT** | **72.6%** | — | — | — | — |
+| Qwen3-8B | 8B | Base | 63.0% | — | — | — | — |
+| gpt-oss-20b | 20B | Base | 84.6% | 28.8% | 98.2% | 77.2% | 4/5 |
+| Qwen3.5-27B* | 27B | Base | 39.8% | — | — | — | — |
+
+*\*Qwen3.5-27B is a base model (not instruct-tuned), which explains its low score — it reasons well but doesn't reliably format clean final answers.*
 
 *Eval in progress — MATH, ARC, MMLU-Pro results filling in. GRPO results coming next.*
 
@@ -55,26 +74,26 @@ Evaluated on 4 clean benchmarks (zero overlap with training data) + 5 hand-writt
 - **Concise teacher > verbose teacher**: Kimi (72.6%) beats GLM-5 (61.3%) despite GLM-5 being the stronger model. Shorter, cleaner reasoning traces transfer better to small students.
 - **Combined traces help** but don't beat the best single teacher (71.3% vs 72.6%)
 
-### Benchmark Methodology
+### Benchmark methodology
+
+We caught a contamination issue mid-project — 94% overlap on our first eval attempt — and rebuilt the entire eval pipeline. Details in the [Dev Log](DEVLOG.md#the-contamination-disaster).
 
 | Benchmark | N | Split | Contamination check |
 |-----------|---|-------|---------------------|
 | GSM8K | 500 | **train** (our training used test) | ✅ 0% overlap verified |
-| MATH | 500 | test, seed 999 (training used seed 42) | ✅ Different sample |
-| ARC-Challenge | 500 | test, seed 999 (training used seed 42) | ✅ Different sample |
+| MATH | 500 | test, seed 999 (training used seed 42) | ✅ Different sample verified |
+| ARC-Challenge | 500 | test, seed 999 (training used seed 42) | ✅ Different sample verified |
 | MMLU-Pro | 500 | test (never in training) | ✅ Fully clean |
 | Trick questions | 5 | Hand-written | ✅ Not from any dataset |
-
-We caught a contamination issue mid-project (94% overlap on our first eval attempt) and rebuilt the entire eval pipeline. Details in the [Dev Log](DEVLOG.md#the-contamination-disaster).
 
 ## How it works
 
 | Step | What |
 |------|------|
 | 1. Collect | GSM8K, MATH, ARC, HumanEval — 2,083 problems |
-| 2. Generate | Both teachers solve all problems with full `<think>` traces via Ollama cloud (4 parallel workers) |
+| 2. Generate | Both teachers solve all problems with full `<think>` traces via Ollama cloud (4 parallel workers each) |
 | 3. Filter | 8 quality gates: correctness, length bounds, coherence, repetition, structured reasoning |
-| 4. Format | Chat format with `<think>`/`<answer>` tags, stratified 90/10 train/val split |
+| 4. Format | Chat format with `<think>`/`<answer>` tags, stratified train/val split |
 | 5. SFT | LoRA fine-tune 3 models on Tinker: GLM-5 traces, Kimi traces, combined |
 | 6. Benchmark | Eval on 4 clean benchmarks + 5 trick questions, 8 models compared |
 | 7. GRPO | Reinforcement learning on all 3 SFT models — reward correct answers |
@@ -101,7 +120,7 @@ We caught a contamination issue mid-project (94% overlap on our first eval attem
 | 8. Structured reasoning | Step indicators present | 51 | 0 |
 
 **GLM-5:** 1,744/2,083 kept (83.7%) — more accurate but very verbose
-**Kimi:** 1,802/2,083 kept (86.5%) — less accurate but cleaner traces
+**Kimi:** 1,802/2,083 kept (86.5%) — more errors but cleaner traces
 
 ### Training data
 
@@ -110,23 +129,6 @@ We caught a contamination issue mid-project (94% overlap on our first eval attem
 | GLM-5 traces | 1,572 | 172 |
 | Kimi traces | 1,624 | 178 |
 | Combined | 3,196 | 350 |
-
-## Choosing the teachers
-
-A key question in distillation is: does the teacher model matter? To test this, we picked two frontier reasoning models with very different styles:
-
-| | GLM-5 | Kimi K2.5 |
-|--|-------|-----------|
-| **Parameters** | 744B (40B active) | ~1T (32B active) |
-| **AIME 2026** | 92.7% | Strong |
-| **Reasoning style** | Verbose, thorough (median 433 tokens) | Concise, elegant (median 325 tokens) |
-| **Filter keep rate** | 83.7% (more accurate, but rambles) | 86.5% (more errors, but cleaner traces) |
-| **License** | MIT | MIT-compatible |
-| **Ollama tag** | `glm-5:cloud` | `kimi-k2.5:cloud` |
-
-Both are free via [Ollama cloud tags](https://ollama.com/search?c=thinking) — the model runs on Ollama's servers, you just send API calls. MIT licensed means outputs can legally be used for training ([we verified this](DEVLOG.md#100-pm--licensing-check-can-we-use-glm-5-outputs-for-training)).
-
-**The experiment:** Same 2,083 problems → both teachers → filter → train separate students → compare. Plus a third student trained on both trace sets combined. This tells us whether verbose reasoning (GLM-5) or concise reasoning (Kimi) transfers better to a small 4B model.
 
 ## Quick start
 
@@ -139,7 +141,7 @@ pip install ollama datasets huggingface_hub tinker tinker-cookbook
 # 1. Download 2,083 problems
 python scripts/download_problems.py
 
-# 2. Generate reasoning traces (runs overnight, 4 parallel workers)
+# 2. Generate reasoning traces (runs overnight, 4 parallel workers each)
 python scripts/generate_traces.py         # GLM-5
 python scripts/generate_traces_kimi.py    # Kimi K2.5
 
@@ -152,17 +154,22 @@ python scripts/format_for_sft.py kimi
 # 4. Upload to HuggingFace
 HF_TOKEN=xxx python scripts/upload_dataset.py
 
-# 5. Train on Tinker
+# 5. Train on Tinker (3 models in parallel)
 TINKER_API_KEY=xxx python scripts/train_tinker.py
 
-# 6. Eval + publish (Colab Pro notebook)
+# 6. Eval + merge + publish (Colab Pro notebook)
 # Open notebooks/eval_and_publish.ipynb
 ```
 
 Or just use the pre-built datasets:
 ```python
 from datasets import load_dataset
+
+# GLM-5 traces
 ds = load_dataset("bmeyer2025/glm5-reasoning-traces-sft")
+
+# Kimi traces
+ds = load_dataset("bmeyer2025/kimi-reasoning-traces-sft")
 ```
 
 ## Project structure
@@ -177,18 +184,14 @@ distillreasoning/
 │   ├── format_for_sft.py          # Stratified chat format (accepts: glm5|kimi)
 │   ├── upload_dataset.py          # Push 4 datasets to HuggingFace
 │   ├── train_tinker.py            # LoRA SFT on Tinker (3 models in parallel)
-│   ├── eval_one.py                # Eval single model on clean benchmarks w/ resume
-│   └── run_pipeline.py            # Chains filter→format→upload→train
+│   └── eval_one.py                # Eval single model on clean benchmarks w/ resume
 ├── notebooks/
-│   ├── sft_training.ipynb         # Colab notebook for SFT (Unsloth, backup)
+│   ├── sft_training.ipynb         # Colab notebook for SFT (Unsloth, backup to Tinker)
 │   └── eval_and_publish.ipynb     # Colab Pro: download LoRA → merge → eval → publish
 ├── cards/
 │   ├── dataset_card.md            # HuggingFace dataset card
 │   └── model_card.md              # HuggingFace model card
-├── images/
-│   ├── triptych_hero.png          # GitHub README hero
-│   ├── distillation_brain.png     # HuggingFace dataset card
-│   └── distillation_apparatus.png # HuggingFace model card
+├── images/                        # Generated hero images (Gemini)
 ├── DEVLOG.md                      # Full build log — every step and mistake
 └── README.md
 ```
@@ -204,15 +207,15 @@ distillreasoning/
 
 ## What I learned
 
-1. **Concise teachers beat verbose ones for small students.** Kimi's 325-token median traces produced a better 4B student than GLM-5's 433-token traces. The student can't absorb 6,000 words of reasoning — it overwhelms a 4B model's capacity.
+1. **Concise teachers beat verbose ones for small students.** Kimi's 325-token median traces produced a better 4B student than GLM-5's 433-token traces. A 4B model can't absorb 6,000 words of reasoning — it overwhelms the model's capacity.
 
 2. **Distillation can beat 2x model size.** Our 4B distilled model (72.6% GSM8K) outperforms a raw Qwen3-8B (63.0%). Targeted training on reasoning traces is more effective than raw scale.
 
 3. **Benchmark contamination is easy to miss.** Our first eval showed 75-80% accuracy — actually 94% data overlap with training. Always verify eval data is clean before celebrating.
 
-4. **The teacher's style transfers, not just correctness.** The distilled model reasons step-by-step, sets up variables, writes equations, and verifies answers — patterns learned from the teacher traces. The reasoning *skill* transferred, not just the format.
+4. **The teacher's reasoning style transfers, not just answers.** The distilled model reasons step-by-step, sets up variables, writes equations, and verifies answers — patterns learned from the teacher traces. The reasoning *skill* transferred, not just the format.
 
-5. **More data isn't always better.** Combined traces (3,196) scored 71.3% vs Kimi-only (1,624) at 72.6%. The verbose GLM-5 traces in the combined set may have added noise.
+5. **More data isn't always better.** Combined traces (3,196) scored 71.3% vs Kimi-only (1,624) at 72.6%. The verbose GLM-5 traces in the combined set may have added noise rather than signal.
 
 *(More findings after GRPO and final eval)*
 
