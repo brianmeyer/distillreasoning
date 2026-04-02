@@ -111,14 +111,22 @@ We caught a contamination issue mid-project (94% overlap on our first eval attem
 | Kimi traces | 1,624 | 178 |
 | Combined | 3,196 | 350 |
 
-## Why GLM-5 and Kimi
+## Choosing the teachers
 
-| Model | Total params | AIME 2026 | Reasoning style | License | Ollama tag |
-|-------|-------------|-----------|-----------------|---------|------------|
-| **GLM-5** | 744B (40B active) | 92.7% | Verbose, thorough | MIT | `glm-5:cloud` |
-| **Kimi K2.5** | ~1T (32B active) | Strong | Concise, elegant | MIT-compatible | `kimi-k2.5:cloud` |
+A key question in distillation is: does the teacher model matter? To test this, we picked two frontier reasoning models with very different styles:
 
-Both free via Ollama cloud tags. MIT licensed — outputs can legally be used for training.
+| | GLM-5 | Kimi K2.5 |
+|--|-------|-----------|
+| **Parameters** | 744B (40B active) | ~1T (32B active) |
+| **AIME 2026** | 92.7% | Strong |
+| **Reasoning style** | Verbose, thorough (median 433 tokens) | Concise, elegant (median 325 tokens) |
+| **Filter keep rate** | 83.7% (more accurate, but rambles) | 86.5% (more errors, but cleaner traces) |
+| **License** | MIT | MIT-compatible |
+| **Ollama tag** | `glm-5:cloud` | `kimi-k2.5:cloud` |
+
+Both are free via [Ollama cloud tags](https://ollama.com/search?c=thinking) — the model runs on Ollama's servers, you just send API calls. MIT licensed means outputs can legally be used for training ([we verified this](DEVLOG.md#100-pm--licensing-check-can-we-use-glm-5-outputs-for-training)).
+
+**The experiment:** Same 2,083 problems → both teachers → filter → train separate students → compare. Plus a third student trained on both trace sets combined. This tells us whether verbose reasoning (GLM-5) or concise reasoning (Kimi) transfers better to a small 4B model.
 
 ## Quick start
 
