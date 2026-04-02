@@ -1060,6 +1060,28 @@ The GSM8K numbers are the headline anyway — distillation +35 points is real an
 
 **Lesson:** Never trust your eval pipeline until you've manually inspected outputs from EVERY model on EVERY benchmark. Automated extraction is fragile — different models format answers differently.
 
+### The Right Way: lm-evaluation-harness
+
+After the extraction disaster, researched how the industry actually does this. The answer: **[lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness)** by EleutherAI. It's the backend for the HuggingFace Open LLM Leaderboard. Every model card you've ever seen uses it.
+
+Key insight: **ARC, GPQA, and MMLU-Pro don't use generation at all.** They use log-likelihood scoring — the model scores each multiple choice option and picks the highest probability. No answer extraction needed. Our custom regex approach was fundamentally wrong for these benchmarks.
+
+Standard settings from Open LLM Leaderboard v2:
+
+| Benchmark | Shots | Method | Task name |
+|-----------|-------|--------|-----------|
+| GSM8K | 8-shot CoT | Generative, regex | `gsm8k_cot` |
+| MATH | 4-shot | Generative, `\boxed{}` | `minerva_math` |
+| ARC-Challenge | 25-shot | Log-likelihood | `arc_challenge` |
+| GPQA Diamond | 0-shot | Log-likelihood | `gpqa_diamond` |
+| MMLU-Pro | 5-shot | Log-likelihood | `mmlu_pro` |
+
+**Critical for MATH:** Must use `minerva_math` task (handles `\boxed{}`), NOT `leaderboard_math_hard` (which requires the model to output "The final answer is X. I hope it is correct." — a format our reasoning models don't use).
+
+Rewrote the entire Colab eval notebook to use `lm-eval` instead of custom code. One `lm-eval` command per model, results directly comparable to every model card on HuggingFace. Also runs gpt-oss-20b locally on the H100 (80GB VRAM, fits in bf16).
+
+**Lesson for the article:** Don't reinvent the wheel on eval. Use the standard tools. The time I spent writing custom extraction code was entirely wasted — `lm-eval` does it better, handles all the edge cases, and makes results comparable to published benchmarks.
+
 ---
 
 ## Phase 7: Export and Publish
