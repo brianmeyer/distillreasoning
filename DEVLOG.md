@@ -1086,4 +1086,41 @@ Rewrote the entire Colab eval notebook to use `lm-eval` instead of custom code. 
 
 ## Phase 7: Export and Publish
 
-*Pending — after GRPO training and final eval on Colab Pro*
+### Checkpoint Format Disaster + Pivot to All-Colab
+
+Tried to start GRPO on Tinker. Failed immediately: `Error code: 400 - Path is invalid`.
+
+**Root cause:** During SFT training, we saved **sampler checkpoints** (`save_weights_for_sampler()`) which are inference-only LoRA weights. GRPO needs **state checkpoints** (`save_state()`) which include optimizer state for resuming training. We never saved those.
+
+This was a planning failure. Should have mapped the full pipeline end-to-end before training:
+- What does GRPO need as input? → state checkpoints
+- What does our SFT script save? → sampler checkpoints
+- Are those compatible? → NO
+
+**The fix:** Move everything to Colab Pro. The sampler checkpoints ARE downloadable LoRA weights — we can load them with Unsloth's `from_pretrained()` and run GRPO locally using TRL's `GRPOTrainer`. No Tinker credits needed for any remaining step.
+
+Downloaded all 3 LoRA adapters (278MB each):
+- `sft_lora_glm5/adapter_model.safetensors` + `adapter_config.json`
+- `sft_lora_kimi/adapter_model.safetensors` + `adapter_config.json`
+- `sft_lora_combined/adapter_model.safetensors` + `adapter_config.json`
+
+**New pipeline (everything on Colab Pro H100):**
+
+| Step | What | How |
+|------|------|-----|
+| 1. Load SFT LoRA | Download from Tinker or upload from local | Free file transfer |
+| 2. GRPO training | TRL `GRPOTrainer` with GSM8K rewards | Local H100 GPU |
+| 3. Benchmark | `lm-evaluation-harness` on all models | Local H100 GPU |
+| 4. Merge + publish | Unsloth merge → HuggingFace → GGUF | Local H100 GPU |
+
+**Zero additional Tinker credits.** Everything from here runs on the H100.
+
+Rewrote the Colab notebook from scratch with this full pipeline. Removed the Tinker GRPO script.
+
+**Lessons:**
+1. Map the FULL pipeline end-to-end before spending money on any step
+2. Verify checkpoint compatibility before training
+3. `save_weights_for_sampler` ≠ `save_state` — one is for inference, one is for resuming training
+4. When in doubt, save BOTH types
+
+*Moving to Colab Pro for GRPO + eval + publish...*
