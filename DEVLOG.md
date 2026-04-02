@@ -1003,6 +1003,36 @@ Tinker doesn't publish directly to HuggingFace — we download the LoRA adapters
 
 The checkpoint paths in the notebook point to SFT finals right now. After GRPO, we'll update them to the GRPO checkpoint paths and re-run.
 
+### Benchmark Methodology Reality Check
+
+Went looking for published benchmark numbers to validate our results. Found a big problem:
+
+| Model | Published GSM8K | Our GSM8K (0-shot) | Gap |
+|-------|----------------|-------------------|-----|
+| gpt-oss-20b | 68.9% (published) | 84.6% (our eval) | +15.7 |
+| Qwen3-4B-Base | 74.1% (5-shot) | 37.3% (our eval) | -36.8 |
+
+**The gap is prompting methodology.** Published benchmarks use **5-shot prompting** for GSM8K (give the model 5 solved examples first). We're doing **zero-shot** (no examples). 5-shot massively helps base models but matters less for instruct-tuned or distilled models that already know the format.
+
+**What this means:**
+- Our internal comparisons (base → distilled) are valid — same methodology throughout
+- But we can't directly compare our numbers to published model cards
+- The +35 point distillation lift is real (both zero-shot)
+- To compare against Jackrong's Claude-distilled Qwen3.5-4B, we need to run their exact methodology
+
+**Fix:** Added both zero-shot AND 5-shot evaluation to the Colab notebook. Also added GPQA Diamond (Jackrong reports 38.9% on their distilled 4B — direct comparison). The Colab eval will run:
+
+| Benchmark | Zero-shot (our method) | Few-shot (published method) |
+|-----------|----------------------|---------------------------|
+| GSM8K | ✅ | ✅ 5-shot |
+| MATH | ✅ | — |
+| ARC | ✅ | — |
+| MMLU-Pro | ✅ | — |
+| GPQA Diamond | — | ✅ 0-shot (Jackrong comparison) |
+| Trick questions | ✅ | — |
+
+**Lesson for the article:** Benchmark numbers without methodology context are meaningless. A model can score 37% or 74% on the same benchmark depending on whether you give it examples first. Always report your methodology.
+
 ---
 
 ## Phase 7: Export and Publish
