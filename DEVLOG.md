@@ -1033,6 +1033,33 @@ Went looking for published benchmark numbers to validate our results. Found a bi
 
 **Lesson for the article:** Benchmark numbers without methodology context are meaningless. A model can score 37% or 74% on the same benchmark depending on whether you give it examples first. Always report your methodology.
 
+### Eval Extraction Disaster
+
+After burning thousands of Tinker inference calls, discovered that most non-GSM8K results were garbage:
+
+| Issue | Affected | Root cause |
+|-------|----------|-----------|
+| MATH 0% on base models | base-4b, llama-3b, qwen35-27b | Extraction only checks `\boxed{}` — base models don't use that format |
+| ARC 100% on base-4b | base-4b | Letter extraction too generous, matching random capitals in response |
+| All MMLU-Pro untested | — | Never verified extraction worked before launching |
+
+**What should have happened:** Test extraction on 5-10 problems per model × benchmark BEFORE launching 16K inference calls. Instead I tested the pipeline on one model (distilled Kimi on GSM8K), saw it work, and assumed it generalized. It didn't. Each model outputs answers in different formats.
+
+**What's salvageable:**
+- GSM8K for all models ✅ (number extraction works regardless of format)
+- MATH for distilled models + gpt-oss-20b ✅ (they use `\boxed{}`)
+- Everything else ❌
+
+**Decision:** Stop Tinker evals. Move ALL benchmarking to Colab Pro where we can:
+1. Test each model × benchmark extraction on 10 examples first
+2. Run locally with fast GPU (no API latency)
+3. Include both zero-shot and few-shot
+4. Not burn credits on broken extraction
+
+The GSM8K numbers are the headline anyway — distillation +35 points is real and solid. Full multi-benchmark comparison happens on Colab Pro post-GRPO.
+
+**Lesson:** Never trust your eval pipeline until you've manually inspected outputs from EVERY model on EVERY benchmark. Automated extraction is fragile — different models format answers differently.
+
 ---
 
 ## Phase 7: Export and Publish
