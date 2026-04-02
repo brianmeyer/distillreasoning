@@ -51,40 +51,23 @@ Both are free via [Ollama cloud tags](https://ollama.com/search?c=thinking) — 
 
 Evaluated on 4 clean benchmarks (zero overlap with training data) + 5 hand-written trick questions. All benchmarks verified for contamination before scoring.
 
-### SFT Results (after supervised fine-tuning, before GRPO)
+### Results
 
-| Model | Params | Type | GSM8K | MATH | ARC | MMLU-Pro | Tricks |
-|-------|--------|------|-------|------|-----|----------|--------|
-| Llama-3.2-3B | 3B | Base | 9.0% | 0.0% | 33.4% | 19.0% | 1/5 |
-| Base Qwen3.5-4B | 4B | Base | 37.3% | — | — | — | — |
-| **Distilled (GLM-5)** | **4B** | **SFT** | **61.3%** | — | — | — | — |
-| **Distilled (Combined)** | **4B** | **SFT** | **71.3%** | — | — | — | — |
-| **Distilled (Kimi)** | **4B** | **SFT** | **72.6%** | — | — | — | — |
-| Qwen3-8B | 8B | Base | 63.0% | — | — | — | — |
-| gpt-oss-20b | 20B | Base | 84.6% | 28.8% | 98.2% | 77.2% | 4/5 |
-| Qwen3.5-27B* | 27B | Base | 39.8% | — | — | — | — |
+Full benchmark results coming — using [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) (the industry standard used by HuggingFace Open LLM Leaderboard) on Colab Pro H100. All 10 models evaluated with identical methodology.
 
-*\*Qwen3.5-27B is a base model (not instruct-tuned), which explains its low score — it reasons well but doesn't reliably format clean final answers.*
+| Benchmark | Shots | Method | Task |
+|-----------|-------|--------|------|
+| GSM8K | 8-shot CoT | Generative | `gsm8k_cot` |
+| MATH | 4-shot | Generative (`\boxed{}`) | `minerva_math` |
+| ARC-Challenge | 25-shot | Log-likelihood | `arc_challenge` |
+| GPQA Diamond | 0-shot | Log-likelihood | `gpqa_diamond` |
+| MMLU-Pro | 5-shot | Log-likelihood | `mmlu_pro` |
 
-*Eval in progress — MATH, ARC, MMLU-Pro results filling in. GRPO results coming next.*
+**Preliminary GSM8K (zero-shot, Tinker eval):** Distillation showed a +35 point lift (37% base → 72% Kimi distilled) and the distilled 4B outperformed a raw Qwen3-8B. Concise Kimi traces transferred better than verbose GLM-5 traces. Full results with proper lm-eval methodology pending.
 
-**Key findings so far:**
-- **Distillation adds +35 points** to GSM8K (37% base → 72% Kimi distilled)
-- **Our distilled 4B beats a raw 8B** (72.6% vs 63.0%) — half the parameters
-- **Concise teacher > verbose teacher**: Kimi (72.6%) beats GLM-5 (61.3%) despite GLM-5 being the stronger model. Shorter, cleaner reasoning traces transfer better to small students.
-- **Combined traces help** but don't beat the best single teacher (71.3% vs 72.6%)
+**Why lm-eval?** We initially wrote custom extraction code and got garbage: 0% on MATH (extraction only checked `\boxed{}`), 100% on ARC (regex too generous). ARC/GPQA/MMLU-Pro use log-likelihood scoring, not generation — our approach was fundamentally wrong. Details in the [Dev Log](DEVLOG.md#eval-extraction-disaster).
 
-### Benchmark methodology
-
-We caught a contamination issue mid-project — 94% overlap on our first eval attempt — and rebuilt the entire eval pipeline. Details in the [Dev Log](DEVLOG.md#the-contamination-disaster).
-
-| Benchmark | N | Split | Contamination check |
-|-----------|---|-------|---------------------|
-| GSM8K | 500 | **train** (our training used test) | ✅ 0% overlap verified |
-| MATH | 500 | test, seed 999 (training used seed 42) | ✅ Different sample verified |
-| ARC-Challenge | 500 | test, seed 999 (training used seed 42) | ✅ Different sample verified |
-| MMLU-Pro | 500 | test (never in training) | ✅ Fully clean |
-| Trick questions | 5 | Hand-written | ✅ Not from any dataset |
+We also caught a contamination issue mid-project — 94% overlap on our first eval attempt. Details in the [Dev Log](DEVLOG.md#the-contamination-disaster).
 
 ## How it works
 
@@ -184,10 +167,11 @@ distillreasoning/
 │   ├── format_for_sft.py          # Stratified chat format (accepts: glm5|kimi)
 │   ├── upload_dataset.py          # Push 4 datasets to HuggingFace
 │   ├── train_tinker.py            # LoRA SFT on Tinker (3 models in parallel)
-│   └── eval_one.py                # Eval single model on clean benchmarks w/ resume
+│   ├── train_grpo.py              # GRPO RL on top of SFT checkpoints (Tinker)
+│   └── eval_one.py                # Eval single model (Tinker API, deprecated)
 ├── notebooks/
 │   ├── sft_training.ipynb         # Colab notebook for SFT (Unsloth, backup to Tinker)
-│   └── eval_and_publish.ipynb     # Colab Pro: download LoRA → merge → eval → publish
+│   └── eval_and_publish.ipynb     # Colab Pro H100: lm-eval benchmarks → merge → publish
 ├── cards/
 │   ├── dataset_card.md            # HuggingFace dataset card
 │   └── model_card.md              # HuggingFace model card
