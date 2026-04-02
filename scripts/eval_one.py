@@ -30,7 +30,6 @@ PROGRESS_DIR = Path("data/eval_progress")
 PROGRESS_DIR.mkdir(exist_ok=True)
 
 N_PER_BENCH = 500
-N_PER_BENCH_DISTILLED = 1000
 SYSTEM_MSG = "You are a helpful reasoning assistant. Think through problems step by step before answering."
 
 TRICK_QUESTIONS = [
@@ -45,7 +44,23 @@ TRICK_QUESTIONS = [
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def extract_final_number(text):
-    numbers = re.findall(r"-?\d+\.?\d*", text.replace(",", ""))
+    """Extract the final answer number, preferring explicit answer patterns."""
+    text_clean = text.replace(",", "")
+
+    # Priority 1: Look for explicit answer patterns
+    answer_patterns = [
+        r"(?:the\s+)?(?:final\s+)?answer\s+is\s*:?\s*\$?\s*(-?\d+\.?\d*)",
+        r"(?:therefore|thus|so)\s*,?\s*.*?(?:is|=|equals)\s*\$?\s*(-?\d+\.?\d*)\s*(?:\.|$|\n)",
+        r"\\boxed\{(-?\d+\.?\d*)\}",
+        r"\*\*\$?(-?\d+\.?\d*)\$?\*\*\s*(?:\.|$|\n|<)",  # **bold answer**
+    ]
+    for pat in answer_patterns:
+        matches = re.findall(pat, text_clean, re.IGNORECASE)
+        if matches:
+            return float(matches[-1])
+
+    # Priority 2: Last number in the text
+    numbers = re.findall(r"-?\d+\.?\d*", text_clean)
     return float(numbers[-1]) if numbers else None
 
 def extract_boxed(text):
@@ -79,7 +94,7 @@ def verify_no_contamination(eval_problems, training_problems, bench_name):
         print(f"  ✅ Clean: 0/{len(eval_problems)} {bench_name} overlap with training")
     return overlap
 
-def sample_with_retry(sc, tokenizer, renderer, problem, max_tokens=1024, max_retries=3):
+def sample_with_retry(sc, tokenizer, renderer, problem, max_tokens=2048, max_retries=3):
     """Sample with retry on transient errors."""
     messages = [{"role": "system", "content": SYSTEM_MSG}, {"role": "user", "content": problem}]
     prompt = renderer.build_generation_prompt(messages)
@@ -333,7 +348,7 @@ def main():
     parser.add_argument("--large", action="store_true")
     args = parser.parse_args()
 
-    n = N_PER_BENCH_DISTILLED if args.large else N_PER_BENCH
+    n = N_PER_BENCH
     print(f"Evaluating: {args.name}")
     print(f"  Base model: {args.base_model}")
     print(f"  Checkpoint: {args.checkpoint or 'none (base)'}")

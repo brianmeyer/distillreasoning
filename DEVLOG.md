@@ -970,7 +970,21 @@ Reference models for context:
 - Llama-3.2-3B (3B, no distillation): 10% — raw small base can't do math
 - Qwen3-8B (8B, no distillation): 67% — our distilled 4B Kimi matches a model 2x its size
 - gpt-oss-20b (20B): 84% — the ceiling
-- Qwen3.5-27B (27B): 86% — the upper bound
+- Qwen3.5-27B (27B): 37% — base model without instruct tuning, can't follow instructions well
+
+### Tinker Inference is Slow
+
+Each eval call takes 3-9 seconds over the network (round-trip to Tinker GPU, generate tokens, send back). With 500 problems × 4 benchmarks × 6 models = 12,000 calls, that's ~20+ hours total. The models share Tinker's bandwidth so they slow each other down running in parallel.
+
+**Decision:** Finish SFT eval on Tinker (it's running, progress saved incrementally). Do GRPO training on Tinker (training is fast, ~1hr per model). Then download the GRPO'd model weights and do ALL the post-GRPO re-evaluation on **Colab Pro** where inference is local GPU — 10-100x faster than API calls.
+
+### Answer Extraction Bug
+
+Discovered that base models (4B, 27B, 8B) were scoring lower than they should because our `extract_final_number()` just grabbed the last number in the response. With verbose reasoning that includes lots of intermediate numbers (step 1: 3+5=8, step 2: 8-2=6), the extractor sometimes grabbed the wrong number.
+
+Fixed with smarter extraction that looks for explicit answer patterns first ("the answer is X", "therefore X", `\boxed{X}`, **X**) before falling back to last-number. Also bumped `max_tokens` from 1024 to 2048 so long responses don't get truncated before the final answer.
+
+The 27B model at 37% is still suspiciously low. It's the base model (not instruct), so it generates reasoning but doesn't reliably format a clean final answer. This is a genuine limitation of base models, not an extraction bug.
 
 ---
 
