@@ -140,8 +140,8 @@ HF_TOKEN=xxx python scripts/upload_dataset.py
 # 5. Train on Tinker (3 models in parallel)
 TINKER_API_KEY=xxx python scripts/train_tinker.py
 
-# 6. Eval + merge + publish (Colab Pro notebook)
-# Open notebooks/eval_and_publish.ipynb
+# 6. GRPO + eval + merge + publish (Colab Pro H100)
+# Open notebooks/distill_pipeline.ipynb
 ```
 
 Or just use the pre-built datasets:
@@ -166,12 +166,9 @@ distillreasoning/
 │   ├── filter_traces.py           # 8-gate quality filter (accepts: glm5|kimi)
 │   ├── format_for_sft.py          # Stratified chat format (accepts: glm5|kimi)
 │   ├── upload_dataset.py          # Push 4 datasets to HuggingFace
-│   ├── train_tinker.py            # LoRA SFT on Tinker (3 models in parallel)
-│   ├── train_grpo.py              # GRPO RL on top of SFT checkpoints (Tinker)
-│   └── eval_one.py                # Eval single model (Tinker API, deprecated)
+│   └── train_tinker.py            # LoRA SFT on Tinker (3 models)
 ├── notebooks/
-│   ├── sft_training.ipynb         # Colab notebook for SFT (Unsloth, backup to Tinker)
-│   └── eval_and_publish.ipynb     # Colab Pro H100: lm-eval benchmarks → merge → publish
+│   └── distill_pipeline.ipynb     # Colab Pro H100: GRPO + lm-eval + merge + publish
 ├── cards/
 │   ├── dataset_card.md            # HuggingFace dataset card
 │   └── model_card.md              # HuggingFace model card
