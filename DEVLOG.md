@@ -988,6 +988,23 @@ The 27B model at 37% is still suspiciously low. It's the base model (not instruc
 
 ---
 
+### Colab Pro Notebook for Post-GRPO Eval & Publish
+
+Wrote `notebooks/eval_and_publish.ipynb` for the final pipeline on Colab Pro:
+
+1. **Download LoRA weights** from Tinker via `get_checkpoint_archive_url()`
+2. **Merge with base model** using Unsloth `save_pretrained_merged()`
+3. **Fast local eval** on A100 — same benchmarks (GSM8K train, MATH seed 999, ARC seed 999), ~10-100x faster than Tinker API
+4. **Side-by-side trick questions** — all models on same 5 problems
+5. **Push to HuggingFace** — merged 16-bit model
+6. **GGUF export** — q4_k_m and q8_0 for local inference via Ollama
+
+Tinker doesn't publish directly to HuggingFace — we download the LoRA adapters, merge locally, then push. The Colab notebook handles the full flow.
+
+The checkpoint paths in the notebook point to SFT finals right now. After GRPO, we'll update them to the GRPO checkpoint paths and re-run.
+
+---
+
 ## Phase 7: Export and Publish
 
-*Pending*
+*Pending — after GRPO training and final eval on Colab Pro*
