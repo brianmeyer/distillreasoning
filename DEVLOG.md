@@ -480,6 +480,32 @@ Also created `cards/dataset_card.md` and `cards/model_card.md` — full HuggingF
 
 ---
 
+## Errors and Lessons
+
+Every mistake from this project, what caused it, and what we learned.
+
+| # | What happened | Root cause | What we learned |
+|---|--------------|-----------|----------------|
+| 1 | `pip install` failed on macOS | PEP 668 blocks system-wide installs | Always create a venv first. Hit this on tinyllm too. |
+| 2 | MATH dataset not found (2 URLs tried) | Dataset reorganized on HuggingFace | Popular datasets move. Verify availability before building pipelines. |
+| 3 | Git commit failed — no identity | Fresh machine, no git config | Minor but annoying. Always set up git identity first. |
+| 4 | `source venv/bin/activate` didn't propagate | Shell env vars don't transfer to subprocesses | Use `./venv/bin/python` directly. |
+| 5 | First eval showed 75-80% accuracy | **94% data contamination** — trained and eval'd on same GSM8K test split | Always verify eval data has zero overlap with training data. A 2-minute check would have caught this. |
+| 6 | MATH eval showed 0% for base models | `\boxed{}` extraction fails on models that don't use that format | Different models format answers differently. Test extraction on every model. |
+| 7 | ARC eval showed 100% for base model | Letter extraction regex too generous, matched random capitals | Log-likelihood scoring (lm-eval) is correct for multiple choice, not generation + regex. |
+| 8 | Tinker billing error killed all 8 evals | Temporary billing glitch (credits still available) | Always save progress incrementally. Our resume logic saved us. |
+| 9 | Tinker sampler checkpoints can't resume training | `save_weights_for_sampler()` ≠ `save_state()` | Map the full pipeline end-to-end before spending money. Verify checkpoint compatibility. |
+| 10 | `pip install unsloth` on Colab pins transformers ≤4.57.6 | Unsloth's pip package hasn't been updated for transformers v5 | Use Unsloth's official install script, not pip install. |
+| 11 | Unsloth install script gives transformers 5.0.0 (too old for qwen3_5) | Script pulls the minimum v5, not latest | Explicitly pin `transformers==5.3.0` after install. |
+| 12 | `fast_inference=True` requires vllm | vllm not installed by default | Don't need fast_inference for training. Remove it. |
+| 13 | `get_peft_model()` fails — "already added LoRA" | Tinker checkpoint already has LoRA adapters | Don't re-add LoRA to a model that already has it. |
+| 14 | `TypeError: string indices must be integers` in GRPOTrainer | Qwen3.5-4B returns a VLM Processor, not a Tokenizer. Processor tries to parse images from string content. | Extract plain tokenizer: `tokenizer = tokenizer.tokenizer`. **Verified locally without GPU.** |
+| 15 | Burned hours of Colab Pro H100 GPU time on errors | Didn't test locally before pushing to Colab | Test everything possible locally (tokenizer, imports, configs) before burning GPU time. |
+
+**Biggest lesson:** Test locally, verify end-to-end, and don't assume anything works just because the previous step worked. Every boundary between tools (Tinker→Unsloth, Processor→Tokenizer, pip→Colab) is a potential breaking point.
+
+---
+
 ### 12:30 PM — Parallelizing Trace Generation (3.5x Speedup)
 
 The sequential generator was averaging ~2 traces/minute — each request takes 5-15 seconds for the API response, plus the 2-second rate-limiting delay we added to be safe. At that rate: **21 hours** for 2,083 problems. Overnight plus most of tomorrow.
