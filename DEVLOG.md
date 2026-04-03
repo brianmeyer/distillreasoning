@@ -1124,3 +1124,30 @@ Rewrote the Colab notebook from scratch with this full pipeline. Removed the Tin
 4. When in doubt, save BOTH types
 
 *Moving to Colab Pro for GRPO + eval + publish...*
+
+### Colab Notebook Hell
+
+What should have been "run the notebook" turned into hours of debugging:
+
+1. **`pip install unsloth` pins transformers<=4.57.6** — Qwen3.5 needs transformers 5.3.0. Fix: use Unsloth's official install script (`curl -fsSL https://unsloth.ai/install.sh | sh`).
+
+2. **Unsloth install script installs transformers 5.0.0** — still too old for qwen3_5. Fix: explicitly `pip install transformers==5.3.0` after.
+
+3. **`fast_inference=True` requires vllm** — which wasn't installed. Fix: remove fast_inference (not needed for training).
+
+4. **`get_peft_model()` fails with "already added LoRA"** — the Tinker checkpoint already has LoRA adapters attached. Fix: remove get_peft_model call.
+
+5. **`TypeError: string indices must be integers, not 'str'`** — Qwen3.5-4B is architecturally a VLM (`Qwen3_5ForConditionalGeneration`). `from_pretrained` returns a Processor (wraps tokenizer + image processor), not a plain Tokenizer. GRPOTrainer passes the Processor to `apply_chat_template`, which tries to iterate message content looking for images — fails on plain strings. Fix: extract the plain tokenizer with `tokenizer = tokenizer.tokenizer`.
+
+**This last one was verified locally** by reproducing the exact error without GPU:
+```python
+proc = AutoProcessor.from_pretrained('Qwen/Qwen3.5-4B')
+for message in msgs:
+    visuals = [content for content in message["content"] if content["type"] in ["image", "video"]]
+# TypeError: string indices must be integers, not 'str'
+```
+
+**Lessons:**
+- Qwen3.5 is natively multimodal. There is no text-only variant. Every Qwen3.5 model has vision components even if you only use text.
+- Always test locally what you can before burning GPU time. The tokenizer/processor behavior can be verified without a GPU.
+- Read the actual error traceback carefully. The error was in `transformers/processing_utils.py`, not in our code — pointing to the Processor vs Tokenizer issue.
