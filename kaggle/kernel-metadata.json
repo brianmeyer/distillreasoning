@@ -1,6 +1,6 @@
 {
-  "id": "bmeyer2025/distill-reasoning-grpo",
-  "title": "Distill Reasoning: GRPO + Eval + Publish",
+  "id": "brianmeyer/distill-reasoning-grpo-eval-publish",
+  "title": "Distill Reasoning GRPO Eval Publish",
   "code_file": "distill_pipeline.ipynb",
   "language": "python",
   "kernel_type": "notebook",
