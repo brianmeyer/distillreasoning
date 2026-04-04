@@ -504,6 +504,24 @@ Every mistake from this project, what caused it, and what we learned.
 
 **Biggest lesson:** Test locally, verify end-to-end, and don't assume anything works just because the previous step worked. Every boundary between tools (Tinker→Unsloth, Processor→Tokenizer, pip→Colab) is a potential breaking point.
 
+### Pivoting from Colab to Kaggle
+
+Burned through Colab Pro H100 GPU quota debugging notebook issues. Switching to Kaggle which gives **30 hours/week free GPU** (T4 16GB).
+
+Key differences for Kaggle:
+- Output to `/kaggle/working/` instead of Google Drive
+- Secrets via `kaggle_secrets.UserSecretsClient()` instead of `userdata.get()`
+- T4 has 16GB VRAM (vs H100 80GB) — need 4-bit quantization for everything
+- 9-hour session limit but supports background execution
+- Can't eval gpt-oss-20b (too big for T4) — use published numbers instead
+
+Created `kaggle/distill_pipeline.ipynb` with all fixes from the Colab debugging session baked in:
+- Unsloth official install
+- transformers==5.3.0 pinned
+- Tokenizer extraction from VLM Processor
+- No `fast_inference` (no vllm needed)
+- No `get_peft_model` (LoRA already loaded)
+
 ---
 
 ### 12:30 PM — Parallelizing Trace Generation (3.5x Speedup)
